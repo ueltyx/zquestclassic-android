@@ -21,21 +21,25 @@ imports select the first `.qst` and extract the archive's companion files into
 a private per-quest folder. The quest runs offline. On-screen controls and
 hardware keyboard input are enabled.
 
+Because this is a debug-signed test build, Android may show a compatibility
+notice on first launch; choose "Don't Show Again".
+
 ## Test status
 
-The debug APK was tested on a Pixel 10 Pro with PureZC's **The Official 7th
-Quest** ZIP (ZC 2.53.1). ZIP import, quest loading, the opening text, on-screen
-A input, and directional keyboard input were verified. This was a smoke test,
-not a full playthrough. Android showed a non-fatal 16 KB page-size compatibility
-warning for some bundled native libraries; the app still launched and played.
+Verified on a Pixel 10 Pro (Android 16) with PureZC's **The Official 7th
+Quest** ZIP (ZC 2.53.1): ZIP import, quest loading, the intro and story
+screens, the file select, and reaching the overworld with movement via both
+the on-screen D-pad and the hardware keyboard. The app passes Android's 16 KB
+page size compatibility check. This is a smoke test, not a full playthrough.
 
-SHA-256: `d2db37a85094f7383ff8992233e0894209868932df7bf423332bfe399f920931`
+SHA-256: `d2e7f8d3800b235dfc300f5dce34c57a97cca2f2c6772b13e5770f5aeb845e9e`
 
 ## Rebuilding from source
 
 Built from upstream source commit
 [`3e5476411344a770489cb5aa44eb80de2eac164d`](https://github.com/ZQuestClassic/ZQuestClassic/commit/3e5476411344a770489cb5aa44eb80de2eac164d),
 with the Android changes in [`android-port.patch`](android-port.patch).
+Requires NDK r27 or newer.
 
 ```sh
 git clone https://github.com/ZQuestClassic/ZQuestClassic.git

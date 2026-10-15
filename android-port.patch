@@ -1,7 +1,7 @@
-diff --git c/.gitignore w/.gitignore
+diff --git a/.gitignore b/.gitignore
 index 9b40925..0da0c57 100644
---- c/.gitignore
-+++ w/.gitignore
+--- a/.gitignore
++++ b/.gitignore
 @@ -149,6 +149,11 @@ ZQ_BUFFER
  
  api_server/secrets.sh
@@ -14,11 +14,11 @@ index 9b40925..0da0c57 100644
  docs-www/source/zscript/globals
  docs-www/source/zscript/classes
  docs-www/source/zscript/libs
-diff --git c/CMakeLists.txt w/CMakeLists.txt
-index 033481b..53bc46b 100644
---- c/CMakeLists.txt
-+++ w/CMakeLists.txt
-@@ -14,10 +14,19 @@ if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 033481b..b855851 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -14,10 +14,25 @@ if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
  	set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
  endif()
  
@@ -34,12 +34,18 @@ index 033481b..53bc46b 100644
 +	set(WANT_ZUPDATER OFF CACHE BOOL "Build the zupdater target" FORCE)
 +	set(WANT_WEBSOCKETS OFF CACHE BOOL "Support websockets in zscript" FORCE)
 +	set(WANT_ZC_TESTS OFF CACHE BOOL "Build tests" FORCE)
++
++	# Devices from Android 15 on may use 16 KB memory pages, and the loader warns
++	# about (or refuses) shared objects whose LOAD segments are only 4 KB
++	# aligned. The NDK linker defaults to 4 KB, so ask for 16 KB everywhere; this
++	# only pads segments, it does not change generated code.
++	add_link_options("LINKER:-z,max-page-size=16384")
 +endif()
 +
  # The BSDs keep third-party packages outside the compiler's default search paths. Add them the
  # way CFLAGS/LDFLAGS would, so the configure-time checks of dependencies (for example Allegro
  # looking for Xcursor) can find those libraries too.
-@@ -283,7 +292,7 @@ if(WANT_VENDORED_LIBJPEG_TURBO)
+@@ -283,7 +298,7 @@ if(WANT_VENDORED_LIBJPEG_TURBO)
  	include_directories(BEFORE SYSTEM "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libjpeg-turbo/src")
  endif()
  
@@ -48,7 +54,7 @@ index 033481b..53bc46b 100644
  	FetchContent_Declare(
  		stduuid
  		GIT_REPOSITORY
-@@ -293,7 +302,9 @@ if (NOT EMSCRIPTEN)
+@@ -293,7 +308,9 @@ if (NOT EMSCRIPTEN)
  		PATCH_COMMAND  git restore . && git apply ${CMAKE_SOURCE_DIR}/third_party/stduuid.patch
  		EXCLUDE_FROM_ALL
  	)
@@ -59,7 +65,7 @@ index 033481b..53bc46b 100644
  	FetchContent_MakeAvailable(stduuid)
  endif()
  
-@@ -353,7 +364,7 @@ add_compile_definitions("$<$<CONFIG:ASAN>:DEBUGMODE>")
+@@ -353,7 +370,7 @@ add_compile_definitions("$<$<CONFIG:ASAN>:DEBUGMODE>")
  
  set(MINIMP3_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include/minimp3)
  
@@ -68,55 +74,20 @@ index 033481b..53bc46b 100644
  	# Vendored SDL2, used only by allegro's SDL joystick driver (see
  	# WANT_SDL2_JOYSTICK below); only joystick-related subsystems are built.
  	# Unlike the native evdev/HID/directinput drivers, SDL keeps working when
-@@ -389,7 +400,7 @@ if(NOT EMSCRIPTEN)
- 	set(WANT_SDL2_JOYSTICK ON CACHE BOOL "" FORCE)
+@@ -399,6 +416,12 @@ if(IS_BSD)
+ 	set(WANT_ALSA OFF CACHE BOOL "" FORCE)
  endif()
  
--if(IS_BSD)
-+if(IS_BSD)
- 	# Allegro auto-detects Linux-only code, which then fails to compile here:
- 	# - linux/input.h may be installed for compatibility (evdev-proto), but it lacks the kernel
- 	#   types (__u16, __s32, ...) Allegro's Linux input drivers need. Joysticks come from SDL2.
-@@ -397,9 +408,15 @@ if(IS_BSD)
- 	#   anyway. OSS and PulseAudio are used instead.
- 	set(ALLEGRO_HAVE_LINUX_INPUT_H FALSE CACHE INTERNAL "" FORCE)
- 	set(WANT_ALSA OFF CACHE BOOL "" FORCE)
--endif()
--
--FetchContent_Declare(
-+endif()
-+
 +if(ANDROID)
 +	# This constructor probe cannot be run by CMake's cross-compiler checks.
 +	# Android supports global constructors, so preseed the expected result.
 +	set(ALLEGRO_LEGACY_USE_CONSTRUCTOR_EXITCODE 0 CACHE STRING "" FORCE)
 +endif()
 +
-+FetchContent_Declare(
+ FetchContent_Declare(
    allegro5
    GIT_REPOSITORY https://github.com/connorjclark/allegro5.git
-   GIT_TAG        aae80ca3573e19702cfc2338591a575dc75eb647
-@@ -442,7 +459,7 @@ file(REMOVE
- 	"${allegro5_SOURCE_DIR}/include/allegro5/internal/aintern_audio.h"
- )
- 
--add_subdirectory(third_party/allegro_legacy EXCLUDE_FROM_ALL)
-+add_subdirectory(third_party/allegro_legacy EXCLUDE_FROM_ALL)
- 
- add_library(allegro_headers INTERFACE)
- target_include_directories(allegro_headers INTERFACE
-@@ -460,8 +477,8 @@ target_link_libraries(allegro-legacy PRIVATE allegro_headers)
- 
- add_library(allegro_with_legacy INTERFACE)
- target_link_libraries(allegro_with_legacy INTERFACE allegro_headers allegro-legacy allegro_primitives allegro_font allegro_image allegro_audio allegro_acodec allegro_memfile allegro_main)
--if (NOT EMSCRIPTEN)
--	target_link_libraries(allegro_with_legacy INTERFACE allegro_dialog)
-+if (NOT EMSCRIPTEN)
-+	target_link_libraries(allegro_with_legacy INTERFACE allegro_dialog)
- endif()
- 
- target_include_directories(allegro_with_legacy INTERFACE 
-@@ -1018,13 +1035,18 @@ if(UNITY_BUILD)
+@@ -1018,12 +1041,17 @@ if(UNITY_BUILD)
  	enable_unity_build(ZeldaSubscreen ZELDA_SUBSCREEN_SOURCES)
  endif()
  
@@ -132,367 +103,16 @@ index 033481b..53bc46b 100644
  target_include_directories(zplayer PRIVATE include/xxhash)
  target_link_libraries(zplayer PRIVATE core zcsound zconsolelogger zcgui worker_pool websocket poolSTL_tbb imgui_color_text_edit)
 -if (NOT EMSCRIPTEN)
--	target_link_libraries(zplayer PRIVATE stduuid)
 +if (NOT EMSCRIPTEN AND NOT ANDROID)
-+	target_link_libraries(zplayer PRIVATE stduuid)
+ 	target_link_libraries(zplayer PRIVATE stduuid)
  	target_compile_definitions(zplayer PRIVATE HAS_UUID)
  endif()
- if(CURL_FOUND)
-diff --git c/src/base/process_management.cpp w/src/base/process_management.cpp
-index 42d477c..5296ca6 100644
---- c/src/base/process_management.cpp
-+++ w/src/base/process_management.cpp
-@@ -9,8 +9,10 @@
- 	#include <csignal>
- 	#include <sys/types.h>
- 	#include <sys/wait.h>
-+	#ifndef __ANDROID__
- 	#include <spawn.h>
- 	#include <pstream.h>
-+	#endif
- #endif
- 
- using namespace util;
-@@ -468,11 +470,21 @@ process_killer launch_process(std::string file, const std::vector<std::string>&
- #else
- 	std::vector<char*> argv = create_argv_unix(file, args);
- 	pid_t pid;
-+#ifdef __ANDROID__
-+	pid = fork();
-+	if (pid == 0)
-+	{
-+		execvp(file.c_str(), argv.data());
-+		_exit(127);
-+	}
-+	int s = pid < 0 ? errno : 0;
-+#else
- #ifdef __linux__
- 	int s = posix_spawnp(&pid, file.c_str(), NULL, NULL, argv.data(), environ);
- #else
- 	extern char** environ;
- 	int s = posix_spawnp(&pid, file.c_str(), NULL, NULL, argv.data(), environ);
-+#endif
- #endif
- 	for (auto arg : argv) free(arg);
- 	if (s != 0) ERR_EXIT("Failed posix_spawnp", (process_manager*)0, 0);
-@@ -563,12 +575,15 @@ process_manager* launch_piped_process(std::string file, [[maybe_unused]] std::st
- 	return pm;
- #else
- 	int32_t pdes_r[2], pdes_w[2];
-+	#ifndef __ANDROID__
- 	posix_spawn_file_actions_t file_actions;
-+	#endif
- 	int s;
- 
- 	pipe(pdes_r);
- 	pipe(pdes_w);
- 
-+#ifndef __ANDROID__
- 	s = posix_spawn_file_actions_init(&file_actions);
- 	if (s != 0) ERR_EXIT("Failed posix_spawn_file_actions_init", pm, 0);
- 	
-@@ -579,14 +594,32 @@ process_manager* launch_piped_process(std::string file, [[maybe_unused]] std::st
- 	posix_spawn_file_actions_adddup2(&file_actions, pdes_w[0], fileno(stdin));
- 	posix_spawn_file_actions_addclose(&file_actions, pdes_w[0]);
- 	posix_spawn_file_actions_addclose(&file_actions, pdes_w[1]);
-+#endif
- 
- 	std::vector<char*> argv = create_argv_unix(file, args);
- 	pid_t child_pid;
-+#ifdef __ANDROID__
-+	child_pid = fork();
-+	if (child_pid == 0)
-+	{
-+		dup2(pdes_r[1], STDOUT_FILENO);
-+		dup2(pdes_r[1], STDERR_FILENO);
-+		dup2(pdes_w[0], STDIN_FILENO);
-+		close(pdes_r[0]);
-+		close(pdes_r[1]);
-+		close(pdes_w[0]);
-+		close(pdes_w[1]);
-+		execvp(file.c_str(), argv.data());
-+		_exit(127);
-+	}
-+	s = child_pid < 0 ? errno : 0;
-+#else
- #ifdef __linux__
- 	s = posix_spawnp(&child_pid, file.c_str(), &file_actions, NULL, argv.data(), environ);
- #else
- 	extern char** environ;
- 	s = posix_spawnp(&child_pid, file.c_str(), &file_actions, NULL, argv.data(), environ);
-+#endif
- #endif
- 	if (s != 0) ERR_EXIT("Failed posix_spawnp", pm, 0);
- 	
-@@ -616,6 +649,8 @@ void launch_file(std::string const& file)
- 	ShellExecute(0, 0, path_buf, 0, 0, SW_NORMAL);
- #elif defined(__EMSCRIPTEN__)
- 	// TODO
-+#elif defined(__ANDROID__)
-+	(void)file;
- #else
- 	std::string command = "open " + file;
- 	system(command.c_str());
-@@ -625,7 +660,12 @@ void launch_file(std::string const& file)
- // TODO: also need to read stderr in windows
- bool run_and_get_output(std::string file, const std::vector<std::string>& args, std::string& output)
- {
--#ifndef _WIN32
-+#ifdef __ANDROID__
-+	(void)file;
-+	(void)args;
-+	(void)output;
-+	return false;
-+#elif !defined(_WIN32)
- 	// For unix, bypass the whole pipe thing (which breaks terribly when zlauncher calls zupdater) by
- 	// using pstream library. Bonus, gives us stderr too.
- 	std::stringstream result;
-diff --git c/src/gui/jwin.cpp w/src/gui/jwin.cpp
-index 215d0cf..6a59578 100644
---- c/src/gui/jwin.cpp
-+++ w/src/gui/jwin.cpp
-@@ -7130,7 +7130,7 @@ int32_t jwin_abclist_proc(int32_t msg,DIALOG *d,int32_t c)
- 				for (int32_t listpos = 0; listpos < max; ++listpos)
- 				{
- 					const char* lst_val = data->listFunc(listpos, &dummy);
--					if (!strnicmp(lst_val, abc_keypresses, search_len))
-+					if (!ustrnicmp(lst_val, abc_keypresses, search_len))
- 					{
- 						d->d1 = listpos;
- 						d->d2 = zc_max(zc_min(listpos - (h >> 1), max - h), 0);
-diff --git c/src/zalleg/zalleg.cpp w/src/zalleg/zalleg.cpp
-index 6182d6e..37a0c50 100644
---- c/src/zalleg/zalleg.cpp
-+++ w/src/zalleg/zalleg.cpp
-@@ -14,8 +14,12 @@
- #include "sfx.h"
- #include "zsyssimple.h"
- #include <al5_img.h>
-+#ifdef __ANDROID__
-+#include <allegro5/allegro.h>
-+#endif
- #include <cstdint>
- #include <ctime>
-+#include <filesystem>
- #include <fmt/format.h>
- #include <loadpng.h>
- #include <mutex>
-@@ -314,6 +318,24 @@ void zalleg_setup_allegro(App id, int argc, char **argv)
- 	{
- 		Z_error_fatal("Failed to init allegro: %s\n", "al_init");
- 	}
-+#ifdef __ANDROID__
-+	// Android stores the copied runtime resources, quest imports, and saves in
-+	// the app's private files directory. The legacy datafile loaders expect the
-+	// current directory to be that resource root, so set it before loading SFX
-+	// and fonts below.
-+	if (ALLEGRO_PATH* user_data_path = al_get_standard_path(ALLEGRO_USER_DATA_PATH))
-+	{
-+		std::error_code ec;
-+		std::filesystem::current_path(al_path_cstr(user_data_path, '/'), ec);
-+		al_destroy_path(user_data_path);
-+		if (ec)
-+			Z_error_fatal("Failed to set Android data directory: %s\n", ec.message().c_str());
-+	}
-+	else
-+	{
-+		Z_error_fatal("Failed to get Android data directory.\n");
-+	}
-+#endif
- 	if (allegro_init() != 0)
- 	{
- 		Z_error_fatal("Failed to init allegro: %s\n%s\n", "allegro_init", allegro_error);
-@@ -557,6 +579,8 @@ void zalleg_bring_window_to_foreground(ALLEGRO_DISPLAY* display)
- 		XFlush(x_display);
- 		XCloseDisplay(x_display);
- 	}
-+#else
-+	(void)display;
- #endif
- }
- 
-diff --git c/src/zc/control_scheme.cpp w/src/zc/control_scheme.cpp
-index 8581fb6..afd2710 100644
---- c/src/zc/control_scheme.cpp
-+++ w/src/zc/control_scheme.cpp
-@@ -198,6 +198,13 @@ extern "C" int _al_sdl_joystick_controller_type(ALLEGRO_JOYSTICK* joy);
- // pad (see gamepad_reported_by_labels), 0 if positional, -1 as above.
- extern "C" int _al_sdl_joystick_mapping_uses_labels(ALLEGRO_JOYSTICK* joy);
- 
-+#ifdef __ANDROID__
-+// Android uses Allegro's native joystick driver, not the SDL driver these
-+// helpers inspect. Treat native controllers as positional Xbox-style pads.
-+extern "C" int _al_sdl_joystick_controller_type(ALLEGRO_JOYSTICK*) { return -1; }
-+extern "C" int _al_sdl_joystick_mapping_uses_labels(ALLEGRO_JOYSTICK*) { return -1; }
-+#endif
-+
- // Values from SDL_GameControllerType.
- static bool is_playstation_type(int type)
- {
-@@ -792,4 +799,3 @@ void control_scheme::save_to_section(const char* scheme_name) const
- 	}
- 	control_config.save();
- }
--
-diff --git c/src/zc/websocket_pool_unsupported.cpp w/src/zc/websocket_pool_unsupported.cpp
-index 5cba63d..fd05bd7 100644
---- c/src/zc/websocket_pool_unsupported.cpp
-+++ w/src/zc/websocket_pool_unsupported.cpp
-@@ -2,42 +2,42 @@
- 
- #include <string>
- 
--int websocket_pool_connect(std::string url, std::string& err)
-+int websocket_pool_connect(std::string, std::string& err)
- {
-     err = "Not Implemented";
-     return -1;
- }
- 
--void websocket_pool_send(int connection_id, WebSocketMessageType type, const std::string& message)
-+void websocket_pool_send(int, WebSocketMessageType, const std::string&)
- {
- }
- 
--bool websocket_pool_has_message(int connection_id)
-+bool websocket_pool_has_message(int)
- {
-     return false;
- }
- 
--WebSocketMessageType websocket_pool_message_type(int connection_id)
-+WebSocketMessageType websocket_pool_message_type(int)
- {
- 	return WebSocketMessageType::None;
- }
- 
--std::pair<WebSocketMessageType, std::string> websocket_pool_receive(int connection_id)
-+std::pair<WebSocketMessageType, std::string> websocket_pool_receive(int)
- {
-     return {};
- }
- 
--WebSocketStatus websocket_pool_status(int connection_id)
-+WebSocketStatus websocket_pool_status(int)
- {
-     return WebSocketStatus::Closed;
- }
- 
--std::string websocket_pool_error(int connection_id)
-+std::string websocket_pool_error(int)
- {
-     return "Not Implemented";
- }
- 
--void websocket_pool_close(int connection_id)
-+void websocket_pool_close(int)
- {
- }
- 
-diff --git c/src/zc/zelda.cpp w/src/zc/zelda.cpp
-index dd3f50e..4a85940 100644
---- c/src/zc/zelda.cpp
-+++ w/src/zc/zelda.cpp
-@@ -82,6 +82,10 @@
- #include <string>
- #include <vector>
- 
-+#ifdef __ANDROID__
-+#include <allegro5/allegro.h>
-+#endif
-+
- #ifdef HAS_UUID
- #include <uuid.h>
- #endif
-@@ -3960,6 +3964,30 @@ int main(int argc, char **argv)
- #endif
- 
- 	zalleg_setup_allegro(App::zelda, argc, argv);
-+#ifdef __ANDROID__
-+	// Android imports the selected quest into the app's private files directory
-+	// and records its path there. Run in that directory so the normal resource,
-+	// configuration, and save paths remain sandboxed and writable.
-+	if (ALLEGRO_PATH* user_data_path = al_get_standard_path(ALLEGRO_USER_DATA_PATH))
-+	{
-+		const char* user_data_dir = al_path_cstr(user_data_path, '/');
-+		std::error_code ec;
-+		fs::current_path(user_data_dir, ec);
-+		if (!ec)
-+		{
-+			std::ifstream selected_quest("selected-quest.txt");
-+			std::string quest_path;
-+			if (std::getline(selected_quest, quest_path) && !quest_path.empty() && fs::is_regular_file(quest_path, ec))
-+			{
-+				standalone_mode = true;
-+				standalone_quest = fs::absolute(quest_path, ec);
-+				if (!ec)
-+					standalone_save_path = "standalone-" + standalone_quest.stem().string() + ".sav";
-+			}
-+		}
-+		al_destroy_path(user_data_path);
-+	}
-+#endif
- 	allocate_crap();
- 	set_should_zprint_cb([]() {
- 		return get_qr(qr_SCRIPTERRLOG) || DEVLEVEL > 0;
-@@ -4073,7 +4101,9 @@ static void init_display()
- 
- 		for (int q = 0; q < NUM_ZCMOUSE; q++)
- 			zcmouse[q] = NULL;
-+	#ifndef __ANDROID__
- 		load_mouse();
-+	#endif
- 	}
- 
- 	for(int32_t i=240; i<256; i++)
-@@ -5148,4 +5178,3 @@ ffcdata* slopes_getFFC(int id)
- {
- 	return &get_scr_for_region_index_offset(id / MAXFFCS)->getFFC(id % MAXFFCS);
- }
--
-diff --git c/third_party/allegro_legacy/CMakeLists.txt w/third_party/allegro_legacy/CMakeLists.txt
-index 9c453b2..410bef9 100644
---- c/third_party/allegro_legacy/CMakeLists.txt
-+++ w/third_party/allegro_legacy/CMakeLists.txt
-@@ -412,7 +412,11 @@ if(ALLEGRO_LEGACY_UNIX)
-     # local edit
-     if (ALLEGRO_SDL)
-         list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_SDL_FILES})
--    elseif(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
-+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
-+        # Android has no ALSA sequencer. Keep MIDI output disabled; the
-+        # Android backend still provides regular audio playback.
-+        list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_NULL_FILES})
-+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-         # The ALSA sequencer is a Linux API.
-         list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_UNIX_FILES})
-     else()
-diff --git c/third_party/allegro_legacy/src/file.c w/third_party/allegro_legacy/src/file.c
-index 665f96a..d248583 100644
---- c/third_party/allegro_legacy/src/file.c
-+++ w/third_party/allegro_legacy/src/file.c
-@@ -187,6 +187,7 @@ char *canonicalize_filename(char *dest, AL_CONST char *filename, int size)
- 	    if (home)
- 	       home = _al_strdup(home);
- 	 }
-+	 #ifndef __ANDROID__
- 	 else {
- 	    /* harder */
- 	    char *username = (char *)tail, *ascii_username, *ch;
-@@ -227,6 +228,7 @@ char *canonicalize_filename(char *dest, AL_CONST char *filename, int size)
- 	       endpwent();
- 	    }
- 	 }
-+	 #endif
- 
- 	 /* If we got a home directory, prepend it to the filename. Otherwise
- 	  * we leave the filename alone, like bash but not tcsh; bash is better
-diff --git 1/android/README.md 2/android/README.md
+diff --git a/android/README.md b/android/README.md
 new file mode 100644
-index 0000000..6842f3e
+index 0000000..352e51a
 --- /dev/null
-+++ 2/android/README.md
-@@ -0,0 +1,43 @@
++++ b/android/README.md
+@@ -0,0 +1,58 @@
 +# ZQuest Classic for Android (player)
 +
 +This is a native Android player using the project's C++ runtime and Allegro's
@@ -500,14 +120,18 @@ index 0000000..6842f3e
 +
 +## Build
 +
-+Install Android Studio with the Android SDK, NDK, and CMake 3.27 or newer. The
-+build also needs a Java 17 runtime and Gradle 8.9 or newer on `PATH`.
++Install Android Studio with the Android SDK, NDK r27 or newer, and CMake 3.27 or
++newer. The build also needs a Java 17 runtime and Gradle 8.9 or newer on `PATH`.
 +
 +```sh
 +export ANDROID_HOME="$HOME/Android/Sdk" # adjust if needed
 +export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/<installed-version>" # optional
 +./android/build.sh
 +```
++
++`build.sh` uses the newest NDK it finds under `$ANDROID_HOME/ndk`. NDK r27 is the
++first release whose `libc++_shared.so` is aligned for 16 KB memory pages, which
++Android 15+ devices may use.
 +
 +The debug APK is written to
 +`android/app/build/outputs/apk/debug/app-debug.apk`. The script first generates
@@ -518,14 +142,24 @@ index 0000000..6842f3e
 +
 +Launch the app and choose either a `.qst` file or a `.zip` containing a `.qst`
 +file. For ZIPs, the first `.qst` entry is selected and companion files are
-+extracted into that quest's private folder. The quest and save files are copied into the app's private
-+storage, so the game can run offline and does not need broad storage
-+permissions.
++extracted into that quest's private folder, so the music and extra assets that
++ship alongside a quest download are kept.
++
++Everything is copied into the app's private storage, so the game can run offline
++and does not need broad storage permissions.
 +
 +The player starts directly in the selected quest. The on-screen D-pad and
 +buttons send the same key events as a keyboard. Hardware keyboards are handled
 +by Allegro; the default ZC controls are the arrow keys, `Z`/`X`, `Q`/`W`,
 +`Enter`, and `Space`.
++
++## Test status
++
++Verified on a Pixel 10 Pro (Android 16) with PureZC's **The Official 7th Quest**
++ZIP (`q845_TheOfficial7thQuest.zip`, ZC 2.53.1): ZIP import, quest loading, the
++opening text, difficulty select, and the first in-game screen all work, with the
++on-screen buttons and keyboard input both responding. This is a smoke test, not
++a full playthrough.
 +
 +## Current limitations
 +
@@ -533,14 +167,16 @@ index 0000000..6842f3e
 +  x86-64 Android environments.
 +- ZIP archives must contain an unencrypted `.qst` file. The first `.qst` is
 +  selected; the archive's companion files are extracted beside it.
-+- The debug APK builds successfully, but has not yet been installed or run on
-+  an Android device. Quest compatibility and touch/keyboard behavior still
-+  need device testing.
-diff --git 1/android/app/build.gradle 2/android/app/build.gradle
++- The build is debug-signed, so Android shows a compatibility warning about a
++  test app on first launch. Pick "Don't Show Again".
++- Only the 7th Quest has been tested. Other quests, especially ones using
++  features Android has no equivalent for, may still fail.
+\ No newline at end of file
+diff --git a/android/app/build.gradle b/android/app/build.gradle
 new file mode 100644
-index 0000000..64a93c7
+index 0000000..b4aed23
 --- /dev/null
-+++ 2/android/app/build.gradle
++++ b/android/app/build.gradle
 @@ -0,0 +1,61 @@
 +plugins {
 +    id "com.android.application"
@@ -549,7 +185,7 @@ index 0000000..64a93c7
 +android {
 +    namespace "org.zquestclassic.android"
 +    compileSdk 35
-+    ndkVersion "26.3.11579264"
++    ndkVersion "27.3.13750724"
 +
 +    defaultConfig {
 +        applicationId "org.zquestclassic.android"
@@ -603,11 +239,11 @@ index 0000000..64a93c7
 +dependencies {
 +    implementation files("libs/allegro-release.aar")
 +}
-diff --git 1/android/app/src/main/AndroidManifest.xml 2/android/app/src/main/AndroidManifest.xml
+diff --git a/android/app/src/main/AndroidManifest.xml b/android/app/src/main/AndroidManifest.xml
 new file mode 100644
 index 0000000..cceb15b
 --- /dev/null
-+++ 2/android/app/src/main/AndroidManifest.xml
++++ b/android/app/src/main/AndroidManifest.xml
 @@ -0,0 +1,30 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -639,11 +275,11 @@ index 0000000..cceb15b
 +        </activity>
 +    </application>
 +</manifest>
-diff --git 1/android/app/src/main/java/org/liballeg/android/PlayerActivity.java 2/android/app/src/main/java/org/liballeg/android/PlayerActivity.java
+diff --git a/android/app/src/main/java/org/liballeg/android/PlayerActivity.java b/android/app/src/main/java/org/liballeg/android/PlayerActivity.java
 new file mode 100644
 index 0000000..778f394
 --- /dev/null
-+++ 2/android/app/src/main/java/org/liballeg/android/PlayerActivity.java
++++ b/android/app/src/main/java/org/liballeg/android/PlayerActivity.java
 @@ -0,0 +1,189 @@
 +package org.liballeg.android;
 +
@@ -834,11 +470,11 @@ index 0000000..778f394
 +        super.onPause();
 +    }
 +}
-diff --git 1/android/app/src/main/java/org/zquestclassic/android/MainActivity.java 2/android/app/src/main/java/org/zquestclassic/android/MainActivity.java
+diff --git a/android/app/src/main/java/org/zquestclassic/android/MainActivity.java b/android/app/src/main/java/org/zquestclassic/android/MainActivity.java
 new file mode 100644
 index 0000000..bf52a3f
 --- /dev/null
-+++ 2/android/app/src/main/java/org/zquestclassic/android/MainActivity.java
++++ b/android/app/src/main/java/org/zquestclassic/android/MainActivity.java
 @@ -0,0 +1,294 @@
 +package org.zquestclassic.android;
 +
@@ -1134,21 +770,21 @@ index 0000000..bf52a3f
 +        super.onDestroy();
 +    }
 +}
-diff --git 1/android/build.gradle 2/android/build.gradle
+diff --git a/android/build.gradle b/android/build.gradle
 new file mode 100644
 index 0000000..48d2fa1
 --- /dev/null
-+++ 2/android/build.gradle
++++ b/android/build.gradle
 @@ -0,0 +1,3 @@
 +plugins {
 +    id "com.android.application" version "8.7.3" apply false
 +}
-diff --git 1/android/build.sh 2/android/build.sh
+diff --git a/android/build.sh b/android/build.sh
 new file mode 100755
-index 0000000..0cb2e8b
+index 0000000..ce1563c
 --- /dev/null
-+++ 2/android/build.sh
-@@ -0,0 +1,68 @@
++++ b/android/build.sh
+@@ -0,0 +1,63 @@
 +#!/usr/bin/env bash
 +
 +set -euo pipefail
@@ -1160,13 +796,8 @@ index 0000000..0cb2e8b
 +ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 +ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-}"
 +if [[ -z "$ANDROID_NDK_HOME" ]]; then
-+  if [[ -d "$ANDROID_HOME/ndk/26.3.11579264" ]]; then
-+    ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.3.11579264"
-+  else
-+    for candidate in "$ANDROID_HOME"/ndk/*; do
-+      [[ -d "$candidate" ]] && ANDROID_NDK_HOME="$candidate"
-+    done
-+  fi
++  # Newest installed version; r27+ is what links the C++ runtime for 16 KB pages.
++  ANDROID_NDK_HOME="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -n 1)"
 +fi
 +
 +JDK_HOME="$(find "$HOME/.local/opt" -maxdepth 1 -type d -name 'jdk-17*' -print -quit 2>/dev/null || true)"
@@ -1217,19 +848,19 @@ index 0000000..0cb2e8b
 +gradle --no-daemon :app:assembleDebug
 +
 +echo "APK: $ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk"
-diff --git 1/android/gradle.properties 2/android/gradle.properties
+diff --git a/android/gradle.properties b/android/gradle.properties
 new file mode 100644
 index 0000000..c751e06
 --- /dev/null
-+++ 2/android/gradle.properties
++++ b/android/gradle.properties
 @@ -0,0 +1,2 @@
 +org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
 +android.useAndroidX=true
-diff --git 1/android/settings.gradle 2/android/settings.gradle
+diff --git a/android/settings.gradle b/android/settings.gradle
 new file mode 100644
 index 0000000..b99246c
 --- /dev/null
-+++ 2/android/settings.gradle
++++ b/android/settings.gradle
 @@ -0,0 +1,18 @@
 +pluginManagement {
 +    repositories {
@@ -1249,3 +880,352 @@ index 0000000..b99246c
 +
 +rootProject.name = "ZQuestClassicAndroid"
 +include(":app")
+diff --git a/src/base/process_management.cpp b/src/base/process_management.cpp
+index 42d477c..5296ca6 100644
+--- a/src/base/process_management.cpp
++++ b/src/base/process_management.cpp
+@@ -9,8 +9,10 @@
+ 	#include <csignal>
+ 	#include <sys/types.h>
+ 	#include <sys/wait.h>
++	#ifndef __ANDROID__
+ 	#include <spawn.h>
+ 	#include <pstream.h>
++	#endif
+ #endif
+ 
+ using namespace util;
+@@ -468,11 +470,21 @@ process_killer launch_process(std::string file, const std::vector<std::string>&
+ #else
+ 	std::vector<char*> argv = create_argv_unix(file, args);
+ 	pid_t pid;
++#ifdef __ANDROID__
++	pid = fork();
++	if (pid == 0)
++	{
++		execvp(file.c_str(), argv.data());
++		_exit(127);
++	}
++	int s = pid < 0 ? errno : 0;
++#else
+ #ifdef __linux__
+ 	int s = posix_spawnp(&pid, file.c_str(), NULL, NULL, argv.data(), environ);
+ #else
+ 	extern char** environ;
+ 	int s = posix_spawnp(&pid, file.c_str(), NULL, NULL, argv.data(), environ);
++#endif
+ #endif
+ 	for (auto arg : argv) free(arg);
+ 	if (s != 0) ERR_EXIT("Failed posix_spawnp", (process_manager*)0, 0);
+@@ -563,12 +575,15 @@ process_manager* launch_piped_process(std::string file, [[maybe_unused]] std::st
+ 	return pm;
+ #else
+ 	int32_t pdes_r[2], pdes_w[2];
++	#ifndef __ANDROID__
+ 	posix_spawn_file_actions_t file_actions;
++	#endif
+ 	int s;
+ 
+ 	pipe(pdes_r);
+ 	pipe(pdes_w);
+ 
++#ifndef __ANDROID__
+ 	s = posix_spawn_file_actions_init(&file_actions);
+ 	if (s != 0) ERR_EXIT("Failed posix_spawn_file_actions_init", pm, 0);
+ 	
+@@ -579,14 +594,32 @@ process_manager* launch_piped_process(std::string file, [[maybe_unused]] std::st
+ 	posix_spawn_file_actions_adddup2(&file_actions, pdes_w[0], fileno(stdin));
+ 	posix_spawn_file_actions_addclose(&file_actions, pdes_w[0]);
+ 	posix_spawn_file_actions_addclose(&file_actions, pdes_w[1]);
++#endif
+ 
+ 	std::vector<char*> argv = create_argv_unix(file, args);
+ 	pid_t child_pid;
++#ifdef __ANDROID__
++	child_pid = fork();
++	if (child_pid == 0)
++	{
++		dup2(pdes_r[1], STDOUT_FILENO);
++		dup2(pdes_r[1], STDERR_FILENO);
++		dup2(pdes_w[0], STDIN_FILENO);
++		close(pdes_r[0]);
++		close(pdes_r[1]);
++		close(pdes_w[0]);
++		close(pdes_w[1]);
++		execvp(file.c_str(), argv.data());
++		_exit(127);
++	}
++	s = child_pid < 0 ? errno : 0;
++#else
+ #ifdef __linux__
+ 	s = posix_spawnp(&child_pid, file.c_str(), &file_actions, NULL, argv.data(), environ);
+ #else
+ 	extern char** environ;
+ 	s = posix_spawnp(&child_pid, file.c_str(), &file_actions, NULL, argv.data(), environ);
++#endif
+ #endif
+ 	if (s != 0) ERR_EXIT("Failed posix_spawnp", pm, 0);
+ 	
+@@ -616,6 +649,8 @@ void launch_file(std::string const& file)
+ 	ShellExecute(0, 0, path_buf, 0, 0, SW_NORMAL);
+ #elif defined(__EMSCRIPTEN__)
+ 	// TODO
++#elif defined(__ANDROID__)
++	(void)file;
+ #else
+ 	std::string command = "open " + file;
+ 	system(command.c_str());
+@@ -625,7 +660,12 @@ void launch_file(std::string const& file)
+ // TODO: also need to read stderr in windows
+ bool run_and_get_output(std::string file, const std::vector<std::string>& args, std::string& output)
+ {
+-#ifndef _WIN32
++#ifdef __ANDROID__
++	(void)file;
++	(void)args;
++	(void)output;
++	return false;
++#elif !defined(_WIN32)
+ 	// For unix, bypass the whole pipe thing (which breaks terribly when zlauncher calls zupdater) by
+ 	// using pstream library. Bonus, gives us stderr too.
+ 	std::stringstream result;
+diff --git a/src/gui/jwin.cpp b/src/gui/jwin.cpp
+index 215d0cf..6a59578 100644
+--- a/src/gui/jwin.cpp
++++ b/src/gui/jwin.cpp
+@@ -7130,7 +7130,7 @@ int32_t jwin_abclist_proc(int32_t msg,DIALOG *d,int32_t c)
+ 				for (int32_t listpos = 0; listpos < max; ++listpos)
+ 				{
+ 					const char* lst_val = data->listFunc(listpos, &dummy);
+-					if (!strnicmp(lst_val, abc_keypresses, search_len))
++					if (!ustrnicmp(lst_val, abc_keypresses, search_len))
+ 					{
+ 						d->d1 = listpos;
+ 						d->d2 = zc_max(zc_min(listpos - (h >> 1), max - h), 0);
+diff --git a/src/zalleg/zalleg.cpp b/src/zalleg/zalleg.cpp
+index 6182d6e..37a0c50 100644
+--- a/src/zalleg/zalleg.cpp
++++ b/src/zalleg/zalleg.cpp
+@@ -14,8 +14,12 @@
+ #include "sfx.h"
+ #include "zsyssimple.h"
+ #include <al5_img.h>
++#ifdef __ANDROID__
++#include <allegro5/allegro.h>
++#endif
+ #include <cstdint>
+ #include <ctime>
++#include <filesystem>
+ #include <fmt/format.h>
+ #include <loadpng.h>
+ #include <mutex>
+@@ -314,6 +318,24 @@ void zalleg_setup_allegro(App id, int argc, char **argv)
+ 	{
+ 		Z_error_fatal("Failed to init allegro: %s\n", "al_init");
+ 	}
++#ifdef __ANDROID__
++	// Android stores the copied runtime resources, quest imports, and saves in
++	// the app's private files directory. The legacy datafile loaders expect the
++	// current directory to be that resource root, so set it before loading SFX
++	// and fonts below.
++	if (ALLEGRO_PATH* user_data_path = al_get_standard_path(ALLEGRO_USER_DATA_PATH))
++	{
++		std::error_code ec;
++		std::filesystem::current_path(al_path_cstr(user_data_path, '/'), ec);
++		al_destroy_path(user_data_path);
++		if (ec)
++			Z_error_fatal("Failed to set Android data directory: %s\n", ec.message().c_str());
++	}
++	else
++	{
++		Z_error_fatal("Failed to get Android data directory.\n");
++	}
++#endif
+ 	if (allegro_init() != 0)
+ 	{
+ 		Z_error_fatal("Failed to init allegro: %s\n%s\n", "allegro_init", allegro_error);
+@@ -557,6 +579,8 @@ void zalleg_bring_window_to_foreground(ALLEGRO_DISPLAY* display)
+ 		XFlush(x_display);
+ 		XCloseDisplay(x_display);
+ 	}
++#else
++	(void)display;
+ #endif
+ }
+ 
+diff --git a/src/zc/control_scheme.cpp b/src/zc/control_scheme.cpp
+index 8581fb6..afd2710 100644
+--- a/src/zc/control_scheme.cpp
++++ b/src/zc/control_scheme.cpp
+@@ -198,6 +198,13 @@ extern "C" int _al_sdl_joystick_controller_type(ALLEGRO_JOYSTICK* joy);
+ // pad (see gamepad_reported_by_labels), 0 if positional, -1 as above.
+ extern "C" int _al_sdl_joystick_mapping_uses_labels(ALLEGRO_JOYSTICK* joy);
+ 
++#ifdef __ANDROID__
++// Android uses Allegro's native joystick driver, not the SDL driver these
++// helpers inspect. Treat native controllers as positional Xbox-style pads.
++extern "C" int _al_sdl_joystick_controller_type(ALLEGRO_JOYSTICK*) { return -1; }
++extern "C" int _al_sdl_joystick_mapping_uses_labels(ALLEGRO_JOYSTICK*) { return -1; }
++#endif
++
+ // Values from SDL_GameControllerType.
+ static bool is_playstation_type(int type)
+ {
+@@ -792,4 +799,3 @@ void control_scheme::save_to_section(const char* scheme_name) const
+ 	}
+ 	control_config.save();
+ }
+-
+diff --git a/src/zc/websocket_pool_unsupported.cpp b/src/zc/websocket_pool_unsupported.cpp
+index 5cba63d..fd05bd7 100644
+--- a/src/zc/websocket_pool_unsupported.cpp
++++ b/src/zc/websocket_pool_unsupported.cpp
+@@ -2,42 +2,42 @@
+ 
+ #include <string>
+ 
+-int websocket_pool_connect(std::string url, std::string& err)
++int websocket_pool_connect(std::string, std::string& err)
+ {
+     err = "Not Implemented";
+     return -1;
+ }
+ 
+-void websocket_pool_send(int connection_id, WebSocketMessageType type, const std::string& message)
++void websocket_pool_send(int, WebSocketMessageType, const std::string&)
+ {
+ }
+ 
+-bool websocket_pool_has_message(int connection_id)
++bool websocket_pool_has_message(int)
+ {
+     return false;
+ }
+ 
+-WebSocketMessageType websocket_pool_message_type(int connection_id)
++WebSocketMessageType websocket_pool_message_type(int)
+ {
+ 	return WebSocketMessageType::None;
+ }
+ 
+-std::pair<WebSocketMessageType, std::string> websocket_pool_receive(int connection_id)
++std::pair<WebSocketMessageType, std::string> websocket_pool_receive(int)
+ {
+     return {};
+ }
+ 
+-WebSocketStatus websocket_pool_status(int connection_id)
++WebSocketStatus websocket_pool_status(int)
+ {
+     return WebSocketStatus::Closed;
+ }
+ 
+-std::string websocket_pool_error(int connection_id)
++std::string websocket_pool_error(int)
+ {
+     return "Not Implemented";
+ }
+ 
+-void websocket_pool_close(int connection_id)
++void websocket_pool_close(int)
+ {
+ }
+ 
+diff --git a/src/zc/zelda.cpp b/src/zc/zelda.cpp
+index dd3f50e..4a85940 100644
+--- a/src/zc/zelda.cpp
++++ b/src/zc/zelda.cpp
+@@ -82,6 +82,10 @@
+ #include <string>
+ #include <vector>
+ 
++#ifdef __ANDROID__
++#include <allegro5/allegro.h>
++#endif
++
+ #ifdef HAS_UUID
+ #include <uuid.h>
+ #endif
+@@ -3960,6 +3964,30 @@ int main(int argc, char **argv)
+ #endif
+ 
+ 	zalleg_setup_allegro(App::zelda, argc, argv);
++#ifdef __ANDROID__
++	// Android imports the selected quest into the app's private files directory
++	// and records its path there. Run in that directory so the normal resource,
++	// configuration, and save paths remain sandboxed and writable.
++	if (ALLEGRO_PATH* user_data_path = al_get_standard_path(ALLEGRO_USER_DATA_PATH))
++	{
++		const char* user_data_dir = al_path_cstr(user_data_path, '/');
++		std::error_code ec;
++		fs::current_path(user_data_dir, ec);
++		if (!ec)
++		{
++			std::ifstream selected_quest("selected-quest.txt");
++			std::string quest_path;
++			if (std::getline(selected_quest, quest_path) && !quest_path.empty() && fs::is_regular_file(quest_path, ec))
++			{
++				standalone_mode = true;
++				standalone_quest = fs::absolute(quest_path, ec);
++				if (!ec)
++					standalone_save_path = "standalone-" + standalone_quest.stem().string() + ".sav";
++			}
++		}
++		al_destroy_path(user_data_path);
++	}
++#endif
+ 	allocate_crap();
+ 	set_should_zprint_cb([]() {
+ 		return get_qr(qr_SCRIPTERRLOG) || DEVLEVEL > 0;
+@@ -4073,7 +4101,9 @@ static void init_display()
+ 
+ 		for (int q = 0; q < NUM_ZCMOUSE; q++)
+ 			zcmouse[q] = NULL;
++	#ifndef __ANDROID__
+ 		load_mouse();
++	#endif
+ 	}
+ 
+ 	for(int32_t i=240; i<256; i++)
+@@ -5148,4 +5178,3 @@ ffcdata* slopes_getFFC(int id)
+ {
+ 	return &get_scr_for_region_index_offset(id / MAXFFCS)->getFFC(id % MAXFFCS);
+ }
+-
+diff --git a/third_party/allegro_legacy/CMakeLists.txt b/third_party/allegro_legacy/CMakeLists.txt
+index 9c453b2..410bef9 100644
+--- a/third_party/allegro_legacy/CMakeLists.txt
++++ b/third_party/allegro_legacy/CMakeLists.txt
+@@ -412,7 +412,11 @@ if(ALLEGRO_LEGACY_UNIX)
+     # local edit
+     if (ALLEGRO_SDL)
+         list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_SDL_FILES})
+-    elseif(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
++    elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
++        # Android has no ALSA sequencer. Keep MIDI output disabled; the
++        # Android backend still provides regular audio playback.
++        list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_NULL_FILES})
++    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+         # The ALSA sequencer is a Linux API.
+         list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_UNIX_FILES})
+     else()
+diff --git a/third_party/allegro_legacy/src/file.c b/third_party/allegro_legacy/src/file.c
+index 665f96a..d248583 100644
+--- a/third_party/allegro_legacy/src/file.c
++++ b/third_party/allegro_legacy/src/file.c
+@@ -187,6 +187,7 @@ char *canonicalize_filename(char *dest, AL_CONST char *filename, int size)
+ 	    if (home)
+ 	       home = _al_strdup(home);
+ 	 }
++	 #ifndef __ANDROID__
+ 	 else {
+ 	    /* harder */
+ 	    char *username = (char *)tail, *ascii_username, *ch;
+@@ -227,6 +228,7 @@ char *canonicalize_filename(char *dest, AL_CONST char *filename, int size)
+ 	       endpwent();
+ 	    }
+ 	 }
++	 #endif
+ 
+ 	 /* If we got a home directory, prepend it to the filename. Otherwise
+ 	  * we leave the filename alone, like bash but not tcsh; bash is better
