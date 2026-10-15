@@ -16,23 +16,45 @@ Waydroid, install with:
 waydroid app install ZQuestClassic-Android-Preview.apk
 ```
 
-Open the app, then choose a `.qst` file or a `.zip` containing a quest. ZIP
-imports select the first `.qst` and extract the archive's companion files into
-a private per-quest folder. The quest runs offline. On-screen controls and
-hardware keyboard input are enabled.
-
 Because this is a debug-signed test build, Android may show a compatibility
 notice on first launch; choose "Don't Show Again".
 
+## Using it
+
+Opening the app shows the **quest library**:
+
+- **On this device** lists quests already imported into the app.
+- **Choose folder** picks a folder once with the system folder picker (it opens
+  in Downloads). Everything under **In \<folder name>** is then read from that
+  folder, sub-folders included.
+- **Import file** does a one-off import of a single `.qst` or `.zip`.
+
+Tapping a quest imports it if needed and starts playing offline. Re-importing the
+same archive reopens the copy already there instead of adding a duplicate.
+
+In game, the top-right bar has **Home** (stop and return to the library),
+**Menu** (ZQuest Classic's own pause menu, the one Escape opens), and **Pad**
+(show or hide the on-screen controls, remembered between sessions). A hardware
+keyboard works too.
+
 ## Test status
 
-Verified on a Pixel 10 Pro (Android 16) with PureZC's **The Official 7th
-Quest** ZIP (ZC 2.53.1): ZIP import, quest loading, the intro and story
-screens, the file select, and reaching the overworld with movement via both
-the on-screen D-pad and the hardware keyboard. The app passes Android's 16 KB
-page size compatibility check. This is a smoke test, not a full playthrough.
+Verified on a Pixel 10 Pro (Android 16) against the six quests in
+`Download/quests`: `q1.zip`, `q2.zip`, `q321_FunintheSun8bitExtraordinare.zip`,
+`q569_PassageThroughTime.zip`, `q845_TheOfficial7thQuest.zip` and
+`q853_MetdroidPlanetXX32.zip`. All six import, start and play with no crashes.
+The touch controls, the pause menu, the pad toggle and the Home button were all
+exercised. This is a smoke test, not a full playthrough of any quest.
 
-SHA-256: `d2e7f8d3800b235dfc300f5dce34c57a97cca2f2c6772b13e5770f5aeb845e9e`
+The APK passes Android's 16 KB page size compatibility check.
+
+Known rough edges: ZC draws its pause menu small in the top-left corner and
+leaves a sliver of it painted briefly after closing; stopping the game ends that
+process with a SIGSEGV inside Allegro's teardown, which is harmless here because
+the library runs in its own process; and imported quests cannot yet be deleted
+from the library.
+
+SHA-256: `45d2f9ecd8950f34f81b85495afe8d449bb2fc4a0535e4ae84b44f30a48a1f5a`
 
 ## Rebuilding from source
 
