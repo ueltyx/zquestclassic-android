@@ -1,0 +1,1160 @@
+diff --git c/.gitignore w/.gitignore
+index 9b40925..0da0c57 100644
+--- c/.gitignore
++++ w/.gitignore
+@@ -149,6 +149,11 @@ ZQ_BUFFER
+ 
+ api_server/secrets.sh
+ 
++# Android build outputs
++/android/.gradle/
++/android/app/.cxx/
++/android/app/libs/*.aar
++
+ docs-www/source/zscript/globals
+ docs-www/source/zscript/classes
+ docs-www/source/zscript/libs
+diff --git c/CMakeLists.txt w/CMakeLists.txt
+index 033481b..53bc46b 100644
+--- c/CMakeLists.txt
++++ w/CMakeLists.txt
+@@ -14,10 +14,19 @@ if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
+ 	set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+ endif()
+ 
+-if(UNIX AND NOT APPLE)
++if(UNIX AND NOT APPLE AND NOT ANDROID)
+ 	set(LINUX TRUE)
+ endif()
+ 
++if(ANDROID)
++	# Android builds the player as a shared library loaded by Allegro's
++	# Activity. Desktop-only integrations are handled by the Android app.
++	set(WANT_NFD OFF CACHE BOOL "Include nativefiledialog" FORCE)
++	set(WANT_ZUPDATER OFF CACHE BOOL "Build the zupdater target" FORCE)
++	set(WANT_WEBSOCKETS OFF CACHE BOOL "Support websockets in zscript" FORCE)
++	set(WANT_ZC_TESTS OFF CACHE BOOL "Build tests" FORCE)
++endif()
++
+ # The BSDs keep third-party packages outside the compiler's default search paths. Add them the
+ # way CFLAGS/LDFLAGS would, so the configure-time checks of dependencies (for example Allegro
+ # looking for Xcursor) can find those libraries too.
+@@ -283,7 +292,7 @@ if(WANT_VENDORED_LIBJPEG_TURBO)
+ 	include_directories(BEFORE SYSTEM "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libjpeg-turbo/src")
+ endif()
+ 
+-if (NOT EMSCRIPTEN)
++if (NOT EMSCRIPTEN AND NOT ANDROID)
+ 	FetchContent_Declare(
+ 		stduuid
+ 		GIT_REPOSITORY
+@@ -293,7 +302,9 @@ if (NOT EMSCRIPTEN)
+ 		PATCH_COMMAND  git restore . && git apply ${CMAKE_SOURCE_DIR}/third_party/stduuid.patch
+ 		EXCLUDE_FROM_ALL
+ 	)
+-	set(UUID_SYSTEM_GENERATOR ON CACHE INTERNAL "")
++	if(NOT ANDROID)
++		set(UUID_SYSTEM_GENERATOR ON CACHE INTERNAL "")
++	endif()
+ 	FetchContent_MakeAvailable(stduuid)
+ endif()
+ 
+@@ -353,7 +364,7 @@ add_compile_definitions("$<$<CONFIG:ASAN>:DEBUGMODE>")
+ 
+ set(MINIMP3_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include/minimp3)
+ 
+-if(NOT EMSCRIPTEN)
++if(NOT EMSCRIPTEN AND NOT ANDROID)
+ 	# Vendored SDL2, used only by allegro's SDL joystick driver (see
+ 	# WANT_SDL2_JOYSTICK below); only joystick-related subsystems are built.
+ 	# Unlike the native evdev/HID/directinput drivers, SDL keeps working when
+@@ -389,7 +400,7 @@ if(NOT EMSCRIPTEN)
+ 	set(WANT_SDL2_JOYSTICK ON CACHE BOOL "" FORCE)
+ endif()
+ 
+-if(IS_BSD)
++if(IS_BSD)
+ 	# Allegro auto-detects Linux-only code, which then fails to compile here:
+ 	# - linux/input.h may be installed for compatibility (evdev-proto), but it lacks the kernel
+ 	#   types (__u16, __s32, ...) Allegro's Linux input drivers need. Joysticks come from SDL2.
+@@ -397,9 +408,15 @@ if(IS_BSD)
+ 	#   anyway. OSS and PulseAudio are used instead.
+ 	set(ALLEGRO_HAVE_LINUX_INPUT_H FALSE CACHE INTERNAL "" FORCE)
+ 	set(WANT_ALSA OFF CACHE BOOL "" FORCE)
+-endif()
+-
+-FetchContent_Declare(
++endif()
++
++if(ANDROID)
++	# This constructor probe cannot be run by CMake's cross-compiler checks.
++	# Android supports global constructors, so preseed the expected result.
++	set(ALLEGRO_LEGACY_USE_CONSTRUCTOR_EXITCODE 0 CACHE STRING "" FORCE)
++endif()
++
++FetchContent_Declare(
+   allegro5
+   GIT_REPOSITORY https://github.com/connorjclark/allegro5.git
+   GIT_TAG        aae80ca3573e19702cfc2338591a575dc75eb647
+@@ -442,7 +459,7 @@ file(REMOVE
+ 	"${allegro5_SOURCE_DIR}/include/allegro5/internal/aintern_audio.h"
+ )
+ 
+-add_subdirectory(third_party/allegro_legacy EXCLUDE_FROM_ALL)
++add_subdirectory(third_party/allegro_legacy EXCLUDE_FROM_ALL)
+ 
+ add_library(allegro_headers INTERFACE)
+ target_include_directories(allegro_headers INTERFACE
+@@ -460,8 +477,8 @@ target_link_libraries(allegro-legacy PRIVATE allegro_headers)
+ 
+ add_library(allegro_with_legacy INTERFACE)
+ target_link_libraries(allegro_with_legacy INTERFACE allegro_headers allegro-legacy allegro_primitives allegro_font allegro_image allegro_audio allegro_acodec allegro_memfile allegro_main)
+-if (NOT EMSCRIPTEN)
+-	target_link_libraries(allegro_with_legacy INTERFACE allegro_dialog)
++if (NOT EMSCRIPTEN)
++	target_link_libraries(allegro_with_legacy INTERFACE allegro_dialog)
+ endif()
+ 
+ target_include_directories(allegro_with_legacy INTERFACE 
+@@ -1018,13 +1035,18 @@ if(UNITY_BUILD)
+ 	enable_unity_build(ZeldaSubscreen ZELDA_SUBSCREEN_SOURCES)
+ endif()
+ 
+-add_executable(zplayer ${ZELDA_CORE_SOURCES} ${ZELDA_GUI_SOURCES} ${ZELDA_SPRITE_SOURCES} ${ZELDA_SUBSCREEN_SOURCES} ${ZELDA_SCRIPTING_SOURCES} ${ZELDAEXTRASOURCES} ${ZELDA_MODULES})
++if(ANDROID)
++	add_library(zplayer SHARED ${ZELDA_CORE_SOURCES} ${ZELDA_GUI_SOURCES} ${ZELDA_SPRITE_SOURCES} ${ZELDA_SUBSCREEN_SOURCES} ${ZELDA_SCRIPTING_SOURCES} ${ZELDAEXTRASOURCES} ${ZELDA_MODULES})
++	set_target_properties(zplayer PROPERTIES OUTPUT_NAME zplayer)
++else()
++	add_executable(zplayer ${ZELDA_CORE_SOURCES} ${ZELDA_GUI_SOURCES} ${ZELDA_SPRITE_SOURCES} ${ZELDA_SUBSCREEN_SOURCES} ${ZELDA_SCRIPTING_SOURCES} ${ZELDAEXTRASOURCES} ${ZELDA_MODULES})
++endif()
+ target_compile_definitions(zplayer PRIVATE IS_PLAYER)
+ set_property(TARGET zplayer PROPERTY VS_DPI_AWARE "PerMonitor")
+ target_include_directories(zplayer PRIVATE include/xxhash)
+ target_link_libraries(zplayer PRIVATE core zcsound zconsolelogger zcgui worker_pool websocket poolSTL_tbb imgui_color_text_edit)
+-if (NOT EMSCRIPTEN)
+-	target_link_libraries(zplayer PRIVATE stduuid)
++if (NOT EMSCRIPTEN AND NOT ANDROID)
++	target_link_libraries(zplayer PRIVATE stduuid)
+ 	target_compile_definitions(zplayer PRIVATE HAS_UUID)
+ endif()
+ if(CURL_FOUND)
+diff --git c/src/base/process_management.cpp w/src/base/process_management.cpp
+index 42d477c..5296ca6 100644
+--- c/src/base/process_management.cpp
++++ w/src/base/process_management.cpp
+@@ -9,8 +9,10 @@
+ 	#include <csignal>
+ 	#include <sys/types.h>
+ 	#include <sys/wait.h>
++	#ifndef __ANDROID__
+ 	#include <spawn.h>
+ 	#include <pstream.h>
++	#endif
+ #endif
+ 
+ using namespace util;
+@@ -468,11 +470,21 @@ process_killer launch_process(std::string file, const std::vector<std::string>&
+ #else
+ 	std::vector<char*> argv = create_argv_unix(file, args);
+ 	pid_t pid;
++#ifdef __ANDROID__
++	pid = fork();
++	if (pid == 0)
++	{
++		execvp(file.c_str(), argv.data());
++		_exit(127);
++	}
++	int s = pid < 0 ? errno : 0;
++#else
+ #ifdef __linux__
+ 	int s = posix_spawnp(&pid, file.c_str(), NULL, NULL, argv.data(), environ);
+ #else
+ 	extern char** environ;
+ 	int s = posix_spawnp(&pid, file.c_str(), NULL, NULL, argv.data(), environ);
++#endif
+ #endif
+ 	for (auto arg : argv) free(arg);
+ 	if (s != 0) ERR_EXIT("Failed posix_spawnp", (process_manager*)0, 0);
+@@ -563,12 +575,15 @@ process_manager* launch_piped_process(std::string file, [[maybe_unused]] std::st
+ 	return pm;
+ #else
+ 	int32_t pdes_r[2], pdes_w[2];
++	#ifndef __ANDROID__
+ 	posix_spawn_file_actions_t file_actions;
++	#endif
+ 	int s;
+ 
+ 	pipe(pdes_r);
+ 	pipe(pdes_w);
+ 
++#ifndef __ANDROID__
+ 	s = posix_spawn_file_actions_init(&file_actions);
+ 	if (s != 0) ERR_EXIT("Failed posix_spawn_file_actions_init", pm, 0);
+ 	
+@@ -579,14 +594,32 @@ process_manager* launch_piped_process(std::string file, [[maybe_unused]] std::st
+ 	posix_spawn_file_actions_adddup2(&file_actions, pdes_w[0], fileno(stdin));
+ 	posix_spawn_file_actions_addclose(&file_actions, pdes_w[0]);
+ 	posix_spawn_file_actions_addclose(&file_actions, pdes_w[1]);
++#endif
+ 
+ 	std::vector<char*> argv = create_argv_unix(file, args);
+ 	pid_t child_pid;
++#ifdef __ANDROID__
++	child_pid = fork();
++	if (child_pid == 0)
++	{
++		dup2(pdes_r[1], STDOUT_FILENO);
++		dup2(pdes_r[1], STDERR_FILENO);
++		dup2(pdes_w[0], STDIN_FILENO);
++		close(pdes_r[0]);
++		close(pdes_r[1]);
++		close(pdes_w[0]);
++		close(pdes_w[1]);
++		execvp(file.c_str(), argv.data());
++		_exit(127);
++	}
++	s = child_pid < 0 ? errno : 0;
++#else
+ #ifdef __linux__
+ 	s = posix_spawnp(&child_pid, file.c_str(), &file_actions, NULL, argv.data(), environ);
+ #else
+ 	extern char** environ;
+ 	s = posix_spawnp(&child_pid, file.c_str(), &file_actions, NULL, argv.data(), environ);
++#endif
+ #endif
+ 	if (s != 0) ERR_EXIT("Failed posix_spawnp", pm, 0);
+ 	
+@@ -616,6 +649,8 @@ void launch_file(std::string const& file)
+ 	ShellExecute(0, 0, path_buf, 0, 0, SW_NORMAL);
+ #elif defined(__EMSCRIPTEN__)
+ 	// TODO
++#elif defined(__ANDROID__)
++	(void)file;
+ #else
+ 	std::string command = "open " + file;
+ 	system(command.c_str());
+@@ -625,7 +660,12 @@ void launch_file(std::string const& file)
+ // TODO: also need to read stderr in windows
+ bool run_and_get_output(std::string file, const std::vector<std::string>& args, std::string& output)
+ {
+-#ifndef _WIN32
++#ifdef __ANDROID__
++	(void)file;
++	(void)args;
++	(void)output;
++	return false;
++#elif !defined(_WIN32)
+ 	// For unix, bypass the whole pipe thing (which breaks terribly when zlauncher calls zupdater) by
+ 	// using pstream library. Bonus, gives us stderr too.
+ 	std::stringstream result;
+diff --git c/src/gui/jwin.cpp w/src/gui/jwin.cpp
+index 215d0cf..6a59578 100644
+--- c/src/gui/jwin.cpp
++++ w/src/gui/jwin.cpp
+@@ -7130,7 +7130,7 @@ int32_t jwin_abclist_proc(int32_t msg,DIALOG *d,int32_t c)
+ 				for (int32_t listpos = 0; listpos < max; ++listpos)
+ 				{
+ 					const char* lst_val = data->listFunc(listpos, &dummy);
+-					if (!strnicmp(lst_val, abc_keypresses, search_len))
++					if (!ustrnicmp(lst_val, abc_keypresses, search_len))
+ 					{
+ 						d->d1 = listpos;
+ 						d->d2 = zc_max(zc_min(listpos - (h >> 1), max - h), 0);
+diff --git c/src/zalleg/zalleg.cpp w/src/zalleg/zalleg.cpp
+index 6182d6e..3d3a7d2 100644
+--- c/src/zalleg/zalleg.cpp
++++ w/src/zalleg/zalleg.cpp
+@@ -557,6 +557,8 @@ void zalleg_bring_window_to_foreground(ALLEGRO_DISPLAY* display)
+ 		XFlush(x_display);
+ 		XCloseDisplay(x_display);
+ 	}
++#else
++	(void)display;
+ #endif
+ }
+ 
+diff --git c/src/zc/control_scheme.cpp w/src/zc/control_scheme.cpp
+index 8581fb6..afd2710 100644
+--- c/src/zc/control_scheme.cpp
++++ w/src/zc/control_scheme.cpp
+@@ -198,6 +198,13 @@ extern "C" int _al_sdl_joystick_controller_type(ALLEGRO_JOYSTICK* joy);
+ // pad (see gamepad_reported_by_labels), 0 if positional, -1 as above.
+ extern "C" int _al_sdl_joystick_mapping_uses_labels(ALLEGRO_JOYSTICK* joy);
+ 
++#ifdef __ANDROID__
++// Android uses Allegro's native joystick driver, not the SDL driver these
++// helpers inspect. Treat native controllers as positional Xbox-style pads.
++extern "C" int _al_sdl_joystick_controller_type(ALLEGRO_JOYSTICK*) { return -1; }
++extern "C" int _al_sdl_joystick_mapping_uses_labels(ALLEGRO_JOYSTICK*) { return -1; }
++#endif
++
+ // Values from SDL_GameControllerType.
+ static bool is_playstation_type(int type)
+ {
+@@ -792,4 +799,3 @@ void control_scheme::save_to_section(const char* scheme_name) const
+ 	}
+ 	control_config.save();
+ }
+-
+diff --git c/src/zc/websocket_pool_unsupported.cpp w/src/zc/websocket_pool_unsupported.cpp
+index 5cba63d..fd05bd7 100644
+--- c/src/zc/websocket_pool_unsupported.cpp
++++ w/src/zc/websocket_pool_unsupported.cpp
+@@ -2,42 +2,42 @@
+ 
+ #include <string>
+ 
+-int websocket_pool_connect(std::string url, std::string& err)
++int websocket_pool_connect(std::string, std::string& err)
+ {
+     err = "Not Implemented";
+     return -1;
+ }
+ 
+-void websocket_pool_send(int connection_id, WebSocketMessageType type, const std::string& message)
++void websocket_pool_send(int, WebSocketMessageType, const std::string&)
+ {
+ }
+ 
+-bool websocket_pool_has_message(int connection_id)
++bool websocket_pool_has_message(int)
+ {
+     return false;
+ }
+ 
+-WebSocketMessageType websocket_pool_message_type(int connection_id)
++WebSocketMessageType websocket_pool_message_type(int)
+ {
+ 	return WebSocketMessageType::None;
+ }
+ 
+-std::pair<WebSocketMessageType, std::string> websocket_pool_receive(int connection_id)
++std::pair<WebSocketMessageType, std::string> websocket_pool_receive(int)
+ {
+     return {};
+ }
+ 
+-WebSocketStatus websocket_pool_status(int connection_id)
++WebSocketStatus websocket_pool_status(int)
+ {
+     return WebSocketStatus::Closed;
+ }
+ 
+-std::string websocket_pool_error(int connection_id)
++std::string websocket_pool_error(int)
+ {
+     return "Not Implemented";
+ }
+ 
+-void websocket_pool_close(int connection_id)
++void websocket_pool_close(int)
+ {
+ }
+ 
+diff --git c/src/zc/zelda.cpp w/src/zc/zelda.cpp
+index dd3f50e..e76f937 100644
+--- c/src/zc/zelda.cpp
++++ w/src/zc/zelda.cpp
+@@ -82,6 +82,10 @@
+ #include <string>
+ #include <vector>
+ 
++#ifdef __ANDROID__
++#include <allegro5/allegro.h>
++#endif
++
+ #ifdef HAS_UUID
+ #include <uuid.h>
+ #endif
+@@ -3960,6 +3964,30 @@ int main(int argc, char **argv)
+ #endif
+ 
+ 	zalleg_setup_allegro(App::zelda, argc, argv);
++#ifdef __ANDROID__
++	// Android imports the selected quest into the app's private files directory
++	// and records its path there. Run in that directory so the normal resource,
++	// configuration, and save paths remain sandboxed and writable.
++	if (ALLEGRO_PATH* user_data_path = al_get_standard_path(ALLEGRO_USER_DATA_PATH))
++	{
++		const char* user_data_dir = al_path_cstr(user_data_path, '/');
++		std::error_code ec;
++		fs::current_path(user_data_dir, ec);
++		if (!ec)
++		{
++			std::ifstream selected_quest("selected-quest.txt");
++			std::string quest_path;
++			if (std::getline(selected_quest, quest_path) && !quest_path.empty() && fs::is_regular_file(quest_path, ec))
++			{
++				standalone_mode = true;
++				standalone_quest = fs::absolute(quest_path, ec);
++				if (!ec)
++					standalone_save_path = "standalone-" + standalone_quest.stem().string() + ".sav";
++			}
++		}
++		al_destroy_path(user_data_path);
++	}
++#endif
+ 	allocate_crap();
+ 	set_should_zprint_cb([]() {
+ 		return get_qr(qr_SCRIPTERRLOG) || DEVLEVEL > 0;
+@@ -5148,4 +5176,3 @@ ffcdata* slopes_getFFC(int id)
+ {
+ 	return &get_scr_for_region_index_offset(id / MAXFFCS)->getFFC(id % MAXFFCS);
+ }
+-
+diff --git c/third_party/allegro_legacy/CMakeLists.txt w/third_party/allegro_legacy/CMakeLists.txt
+index 9c453b2..410bef9 100644
+--- c/third_party/allegro_legacy/CMakeLists.txt
++++ w/third_party/allegro_legacy/CMakeLists.txt
+@@ -412,7 +412,11 @@ if(ALLEGRO_LEGACY_UNIX)
+     # local edit
+     if (ALLEGRO_SDL)
+         list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_SDL_FILES})
+-    elseif(CMAKE_SYSTEM_NAME MATCHES "Linux|Android")
++    elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
++        # Android has no ALSA sequencer. Keep MIDI output disabled; the
++        # Android backend still provides regular audio playback.
++        list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_NULL_FILES})
++    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+         # The ALSA sequencer is a Linux API.
+         list(APPEND PLATFORM_SOURCES ${ALLEGRO_LEGACY_SRC_MIDIA5_UNIX_FILES})
+     else()
+diff --git c/third_party/allegro_legacy/src/file.c w/third_party/allegro_legacy/src/file.c
+index 665f96a..d248583 100644
+--- c/third_party/allegro_legacy/src/file.c
++++ w/third_party/allegro_legacy/src/file.c
+@@ -187,6 +187,7 @@ char *canonicalize_filename(char *dest, AL_CONST char *filename, int size)
+ 	    if (home)
+ 	       home = _al_strdup(home);
+ 	 }
++	 #ifndef __ANDROID__
+ 	 else {
+ 	    /* harder */
+ 	    char *username = (char *)tail, *ascii_username, *ch;
+@@ -227,6 +228,7 @@ char *canonicalize_filename(char *dest, AL_CONST char *filename, int size)
+ 	       endpwent();
+ 	    }
+ 	 }
++	 #endif
+ 
+ 	 /* If we got a home directory, prepend it to the filename. Otherwise
+ 	  * we leave the filename alone, like bash but not tcsh; bash is better
+diff --git 1/android/README.md 2/android/README.md
+new file mode 100644
+index 0000000..a14fe84
+--- /dev/null
++++ 2/android/README.md
+@@ -0,0 +1,43 @@
++# ZQuest Classic for Android (player)
++
++This is a native Android player using the project's C++ runtime and Allegro's
++Android backend. It does not include the desktop quest editor.
++
++## Build
++
++Install Android Studio with the Android SDK, NDK, and CMake 3.27 or newer. The
++build also needs a Java 17 runtime and Gradle 8.9 or newer on `PATH`.
++
++```sh
++export ANDROID_HOME="$HOME/Android/Sdk" # adjust if needed
++export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/<installed-version>" # optional
++./android/build.sh
++```
++
++The debug APK is written to
++`android/app/build/outputs/apk/debug/app-debug.apk`. The script first generates
++Allegro's Android library; run it once before opening `android/` in Android
++Studio so that its local AAR dependency is available.
++
++## Playing a quest
++
++Launch the app and choose either a `.qst` file or a `.zip` containing a `.qst`
++file. For ZIPs, the first `.qst` entry is imported; other archive contents are
++not extracted. The quest and save files are copied into the app's private
++storage, so the game can run offline and does not need broad storage
++permissions.
++
++The player starts directly in the selected quest. The on-screen D-pad and
++buttons send the same key events as a keyboard. Hardware keyboards are handled
++by Allegro; the default ZC controls are the arrow keys, `Z`/`X`, `Q`/`W`,
++`Enter`, and `Space`.
++
++## Current limitations
++
++- The APK includes `arm64-v8a` for phones and `x86_64` for Waydroid and other
++  x86-64 Android environments.
++- ZIP archives must contain an unencrypted `.qst` file. Only that quest is
++  imported; custom external assets alongside it are not.
++- The debug APK builds successfully, but has not yet been installed or run on
++  an Android device. Quest compatibility and touch/keyboard behavior still
++  need device testing.
+diff --git 1/android/app/build.gradle 2/android/app/build.gradle
+new file mode 100644
+index 0000000..64a93c7
+--- /dev/null
++++ 2/android/app/build.gradle
+@@ -0,0 +1,61 @@
++plugins {
++    id "com.android.application"
++}
++
++android {
++    namespace "org.zquestclassic.android"
++    compileSdk 35
++    ndkVersion "26.3.11579264"
++
++    defaultConfig {
++        applicationId "org.zquestclassic.android"
++        minSdk 23
++        targetSdk 35
++        versionCode 1
++        versionName "3.0.0-dev"
++
++        ndk {
++            abiFilters "arm64-v8a", "x86_64"
++        }
++
++        externalNativeBuild {
++            cmake {
++                targets "zplayer"
++                arguments "-DANDROID_STL=c++_shared",
++                          "-DWANT_NFD=OFF",
++                          "-DWANT_ZUPDATER=OFF",
++                          "-DWANT_WEBSOCKETS=OFF",
++                          "-DWANT_ZC_TESTS=OFF"
++            }
++        }
++    }
++
++    sourceSets {
++        main {
++            // The runtime expects its standard resources directory beside its
++            // config and save files. MainActivity copies these assets into the
++            // app's private files directory on first launch.
++            assets.srcDirs = ["../../resources"]
++        }
++    }
++
++    externalNativeBuild {
++        cmake {
++            path file("../../CMakeLists.txt")
++            version "3.30.5"
++        }
++    }
++
++    buildTypes {
++        debug {
++            minifyEnabled false
++        }
++        release {
++            minifyEnabled false
++        }
++    }
++}
++
++dependencies {
++    implementation files("libs/allegro-release.aar")
++}
+diff --git 1/android/app/src/main/AndroidManifest.xml 2/android/app/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..cceb15b
+--- /dev/null
++++ 2/android/app/src/main/AndroidManifest.xml
+@@ -0,0 +1,30 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++    <application
++        android:allowBackup="false"
++        android:label="ZQuest Classic"
++        android:theme="@android:style/Theme.Material.Light.NoActionBar">
++        <activity
++            android:name="org.liballeg.android.PlayerActivity"
++            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
++            android:screenOrientation="landscape"
++            android:exported="false" />
++        <activity
++            android:name=".MainActivity"
++            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
++            android:screenOrientation="landscape"
++            android:exported="true">
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++                <category android:name="android.intent.category.LAUNCHER" />
++            </intent-filter>
++            <intent-filter>
++                <action android:name="android.intent.action.VIEW" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <category android:name="android.intent.category.BROWSABLE" />
++                <data android:mimeType="application/octet-stream" />
++                <data android:mimeType="application/zip" />
++            </intent-filter>
++        </activity>
++    </application>
++</manifest>
+diff --git 1/android/app/src/main/java/org/liballeg/android/PlayerActivity.java 2/android/app/src/main/java/org/liballeg/android/PlayerActivity.java
+new file mode 100644
+index 0000000..778f394
+--- /dev/null
++++ 2/android/app/src/main/java/org/liballeg/android/PlayerActivity.java
+@@ -0,0 +1,189 @@
++package org.liballeg.android;
++
++import android.graphics.Color;
++import android.graphics.drawable.GradientDrawable;
++import android.os.Bundle;
++import android.view.Gravity;
++import android.view.KeyEvent;
++import android.view.MotionEvent;
++import android.view.View;
++import android.view.ViewGroup;
++import android.widget.FrameLayout;
++import android.widget.GridLayout;
++import android.widget.LinearLayout;
++import android.widget.TextView;
++import android.util.Log;
++
++import java.util.HashMap;
++import java.util.Map;
++
++/** Allegro's Android surface with lightweight touch controls layered over it. */
++public final class PlayerActivity extends AllegroActivity {
++    private final Map<View, Integer> heldControls = new HashMap<>();
++    private View controlsOverlay;
++
++    static {
++        loadAllegroLibrary("allegro");
++        loadAllegroLibrary("allegro_primitives");
++        loadAllegroLibrary("allegro_image");
++        loadAllegroLibrary("allegro_font");
++        loadAllegroLibrary("allegro_audio");
++        loadAllegroLibrary("allegro_acodec");
++        loadAllegroLibrary("allegro_memfile");
++        loadAllegroLibrary("allegro_dialog");
++    }
++
++    private static void loadAllegroLibrary(String name) {
++        try {
++            System.loadLibrary(name + "-debug");
++        } catch (UnsatisfiedLinkError debugBuildNotFound) {
++            try {
++                System.loadLibrary(name);
++            } catch (UnsatisfiedLinkError releaseBuildNotFound) {
++                releaseBuildNotFound.addSuppressed(debugBuildNotFound);
++                Log.e("ZQuestClassic", "Could not load Allegro library " + name, releaseBuildNotFound);
++                throw releaseBuildNotFound;
++            }
++        }
++    }
++
++    public PlayerActivity() {
++        super("libzplayer.so");
++    }
++
++    @Override
++    public void onCreate(Bundle state) {
++        super.onCreate(state);
++        getWindow().getDecorView().setKeepScreenOn(true);
++    }
++
++    // Allegro creates/replaces its SurfaceView asynchronously after onCreate.
++    // This package-level override runs after that replacement, so the controls
++    // stay on top of the native game surface.
++    @Override
++    void createSurface() {
++        super.createSurface();
++        addTouchControls();
++    }
++
++    private void addTouchControls() {
++        ViewGroup decor = (ViewGroup) getWindow().getDecorView();
++        if (controlsOverlay != null && controlsOverlay.getParent() instanceof ViewGroup) {
++            ((ViewGroup) controlsOverlay.getParent()).removeView(controlsOverlay);
++        }
++        FrameLayout controls = new FrameLayout(this);
++        controls.setFocusable(false);
++
++        GridLayout dpad = new GridLayout(this);
++        dpad.setRowCount(3);
++        dpad.setColumnCount(3);
++        addDpadButton(dpad, "↑", KeyEvent.KEYCODE_DPAD_UP, 1, 0);
++        addDpadButton(dpad, "←", KeyEvent.KEYCODE_DPAD_LEFT, 0, 1);
++        addDpadButton(dpad, "→", KeyEvent.KEYCODE_DPAD_RIGHT, 2, 1);
++        addDpadButton(dpad, "↓", KeyEvent.KEYCODE_DPAD_DOWN, 1, 2);
++
++        FrameLayout.LayoutParams dpadParams = new FrameLayout.LayoutParams(dp(168), dp(168), Gravity.START | Gravity.BOTTOM);
++        dpadParams.setMargins(dp(18), 0, 0, dp(20));
++        controls.addView(dpad, dpadParams);
++
++        LinearLayout faceButtons = new LinearLayout(this);
++        faceButtons.setOrientation(LinearLayout.VERTICAL);
++        faceButtons.setGravity(Gravity.CENTER);
++
++        LinearLayout topRow = new LinearLayout(this);
++        topRow.addView(makeControl("L", KeyEvent.KEYCODE_Q, dp(56)));
++        topRow.addView(makeControl("R", KeyEvent.KEYCODE_W, dp(56)));
++        faceButtons.addView(topRow);
++
++        LinearLayout actionRow = new LinearLayout(this);
++        actionRow.addView(makeControl("B", KeyEvent.KEYCODE_X, dp(68)));
++        actionRow.addView(makeControl("A", KeyEvent.KEYCODE_Z, dp(68)));
++        faceButtons.addView(actionRow);
++
++        LinearLayout menuRow = new LinearLayout(this);
++        menuRow.addView(makeControl("Map", KeyEvent.KEYCODE_SPACE, dp(56)));
++        menuRow.addView(makeControl("Start", KeyEvent.KEYCODE_ENTER, dp(56)));
++        faceButtons.addView(menuRow);
++
++        FrameLayout.LayoutParams faceParams = new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.BOTTOM);
++        faceParams.setMargins(0, 0, dp(18), dp(16));
++        controls.addView(faceButtons, faceParams);
++
++        controlsOverlay = controls;
++        decor.addView(controlsOverlay, new ViewGroup.LayoutParams(-1, -1));
++    }
++
++    private void addDpadButton(GridLayout grid, String label, int keyCode, int column, int row) {
++        TextView button = makeControl(label, keyCode, dp(54));
++        GridLayout.LayoutParams params = new GridLayout.LayoutParams(
++                GridLayout.spec(row), GridLayout.spec(column));
++        params.width = dp(54);
++        params.height = dp(54);
++        params.setMargins(dp(1), dp(1), dp(1), dp(1));
++        grid.addView(button, params);
++    }
++
++    private TextView makeControl(String label, int keyCode, int size) {
++        TextView button = new TextView(this);
++        button.setText(label);
++        button.setTextColor(Color.WHITE);
++        button.setTextSize(label.length() > 1 ? 13 : 22);
++        button.setGravity(Gravity.CENTER);
++        button.setFocusable(false);
++        button.setBackground(background(false));
++        button.setOnTouchListener((view, event) -> {
++            int action = event.getActionMasked();
++            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
++                if (!heldControls.containsKey(view)) {
++                    heldControls.put(view, keyCode);
++                    sendKey(keyCode, KeyEvent.ACTION_DOWN);
++                    view.setBackground(background(true));
++                }
++                return true;
++            }
++            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_POINTER_UP) {
++                releaseControl(view);
++                return true;
++            }
++            return true;
++        });
++
++        // Size is supplied by the parent for the d-pad. Face buttons use a
++        // comfortably tappable square with a small gap between controls.
++        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(size, size);
++        params.setMargins(dp(3), dp(3), dp(3), dp(3));
++        button.setLayoutParams(params);
++        return button;
++    }
++
++    private GradientDrawable background(boolean pressed) {
++        GradientDrawable shape = new GradientDrawable();
++        shape.setShape(GradientDrawable.OVAL);
++        shape.setColor(pressed ? Color.argb(190, 50, 120, 210) : Color.argb(120, 20, 24, 32));
++        shape.setStroke(dp(1), Color.argb(170, 255, 255, 255));
++        return shape;
++    }
++
++    private void sendKey(int keyCode, int action) {
++        long now = System.currentTimeMillis();
++        dispatchKeyEvent(new KeyEvent(now, now, action, keyCode, 0));
++    }
++
++    private void releaseControl(View view) {
++        Integer keyCode = heldControls.remove(view);
++        if (keyCode != null) {
++            sendKey(keyCode, KeyEvent.ACTION_UP);
++            view.setBackground(background(false));
++        }
++    }
++
++    private int dp(int value) {
++        return Math.round(value * getResources().getDisplayMetrics().density);
++    }
++
++    @Override
++    public void onPause() {
++        for (View view : new java.util.ArrayList<>(heldControls.keySet())) releaseControl(view);
++        super.onPause();
++    }
++}
+diff --git 1/android/app/src/main/java/org/zquestclassic/android/MainActivity.java 2/android/app/src/main/java/org/zquestclassic/android/MainActivity.java
+new file mode 100644
+index 0000000..e61a8d6
+--- /dev/null
++++ 2/android/app/src/main/java/org/zquestclassic/android/MainActivity.java
+@@ -0,0 +1,251 @@
++package org.zquestclassic.android;
++
++import android.app.Activity;
++import android.content.Intent;
++import android.database.Cursor;
++import android.net.Uri;
++import android.os.Bundle;
++import android.provider.OpenableColumns;
++import android.view.Gravity;
++import android.view.View;
++import android.widget.Button;
++import android.widget.LinearLayout;
++import android.widget.ProgressBar;
++import android.widget.TextView;
++import android.widget.Toast;
++
++import org.liballeg.android.PlayerActivity;
++
++import java.io.File;
++import java.io.FileOutputStream;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.nio.charset.StandardCharsets;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++import java.util.zip.ZipEntry;
++import java.util.zip.ZipInputStream;
++
++/** Lets the user select a .qst or a .zip containing a quest. */
++public final class MainActivity extends Activity {
++    private static final int REQUEST_QUEST = 1;
++    private static final long MAX_QUEST_BYTES = 1024L * 1024L * 1024L;
++
++    private final ExecutorService importer = Executors.newSingleThreadExecutor();
++    private Button chooseButton;
++    private ProgressBar progress;
++    private TextView status;
++
++    @Override
++    protected void onCreate(Bundle savedInstanceState) {
++        super.onCreate(savedInstanceState);
++        showPickerScreen();
++
++        Uri incoming = getIntent() == null ? null : getIntent().getData();
++        if (incoming != null) {
++            importQuest(incoming);
++        }
++    }
++
++    private void showPickerScreen() {
++        LinearLayout content = new LinearLayout(this);
++        content.setOrientation(LinearLayout.VERTICAL);
++        content.setGravity(Gravity.CENTER);
++        int padding = dp(28);
++        content.setPadding(padding, padding, padding, padding);
++
++        TextView title = new TextView(this);
++        title.setText("ZQuest Classic");
++        title.setTextSize(28);
++        title.setGravity(Gravity.CENTER);
++        content.addView(title, new LinearLayout.LayoutParams(-1, -2));
++
++        TextView instructions = new TextView(this);
++        instructions.setText("Choose a quest file (.qst) or a quest download (.zip).\nThe quest will be imported into this device for offline play.");
++        instructions.setTextSize(16);
++        instructions.setGravity(Gravity.CENTER);
++        LinearLayout.LayoutParams messageParams = new LinearLayout.LayoutParams(-1, -2);
++        messageParams.topMargin = dp(16);
++        content.addView(instructions, messageParams);
++
++        chooseButton = new Button(this);
++        chooseButton.setText("Choose quest file");
++        chooseButton.setOnClickListener(view -> openDocumentPicker());
++        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(-2, -2);
++        buttonParams.topMargin = dp(24);
++        content.addView(chooseButton, buttonParams);
++
++        progress = new ProgressBar(this);
++        progress.setVisibility(View.GONE);
++        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(-2, -2);
++        progressParams.topMargin = dp(12);
++        content.addView(progress, progressParams);
++
++        status = new TextView(this);
++        status.setGravity(Gravity.CENTER);
++        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
++        statusParams.topMargin = dp(12);
++        content.addView(status, statusParams);
++
++        setContentView(content);
++    }
++
++    private void openDocumentPicker() {
++        Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
++        picker.addCategory(Intent.CATEGORY_OPENABLE);
++        picker.setType("*/*");
++        startActivityForResult(picker, REQUEST_QUEST);
++    }
++
++    @Override
++    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
++        super.onActivityResult(requestCode, resultCode, data);
++        if (requestCode == REQUEST_QUEST && resultCode == RESULT_OK && data != null && data.getData() != null) {
++            importQuest(data.getData());
++        }
++    }
++
++    private void importQuest(Uri uri) {
++        chooseButton.setEnabled(false);
++        progress.setVisibility(View.VISIBLE);
++        status.setText("Importing quest…");
++
++        importer.execute(() -> {
++            try {
++                copyResourcesIfNeeded();
++                String name = displayName(uri);
++                String lowerName = name.toLowerCase(java.util.Locale.ROOT);
++                File quests = new File(getFilesDir(), "quests");
++                if (!quests.isDirectory() && !quests.mkdirs()) {
++                    throw new IllegalStateException("Could not create the quest folder.");
++                }
++
++                File selectedQuest;
++                if (lowerName.endsWith(".qst")) {
++                    selectedQuest = new File(quests, safeBaseName(name));
++                    try (InputStream input = getContentResolver().openInputStream(uri)) {
++                        if (input == null) throw new IllegalStateException("Could not open the selected file.");
++                        copyLimited(input, new FileOutputStream(selectedQuest));
++                    }
++                } else if (lowerName.endsWith(".zip")) {
++                    selectedQuest = importFirstQuestFromZip(uri, quests);
++                } else {
++                    throw new IllegalArgumentException("Select a .qst file or a .zip containing a .qst file.");
++                }
++
++                File marker = new File(getFilesDir(), "selected-quest.txt");
++                try (FileOutputStream output = new FileOutputStream(marker)) {
++                    output.write(selectedQuest.getAbsolutePath().getBytes(StandardCharsets.UTF_8));
++                    output.write('\n');
++                }
++
++                runOnUiThread(() -> {
++                    progress.setVisibility(View.GONE);
++                    chooseButton.setEnabled(true);
++                    status.setText("Starting " + selectedQuest.getName());
++                    startActivity(new Intent(this, PlayerActivity.class));
++                });
++            } catch (Exception error) {
++                runOnUiThread(() -> {
++                    progress.setVisibility(View.GONE);
++                    chooseButton.setEnabled(true);
++                    status.setText(error.getMessage() == null ? "Could not import this quest." : error.getMessage());
++                    Toast.makeText(this, status.getText(), Toast.LENGTH_LONG).show();
++                });
++            }
++        });
++    }
++
++    private File importFirstQuestFromZip(Uri uri, File destination) throws Exception {
++        try (InputStream source = getContentResolver().openInputStream(uri)) {
++            if (source == null) throw new IllegalStateException("Could not open the selected ZIP file.");
++            try (ZipInputStream zip = new ZipInputStream(source)) {
++                ZipEntry entry;
++                while ((entry = zip.getNextEntry()) != null) {
++                    if (!entry.isDirectory() && entry.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".qst")) {
++                        String name = entry.getName().replace('\\', '/');
++                        name = name.substring(name.lastIndexOf('/') + 1);
++                        File quest = new File(destination, safeBaseName(name));
++                        copyLimited(zip, new FileOutputStream(quest));
++                        return quest;
++                    }
++                    zip.closeEntry();
++                }
++            }
++        }
++        throw new IllegalArgumentException("The ZIP archive does not contain a .qst quest file.");
++    }
++
++    private void copyResourcesIfNeeded() throws Exception {
++        File marker = new File(getFilesDir(), ".resources-installed");
++        if (marker.isFile()) return;
++
++        File resources = new File(getFilesDir(), "resources");
++        copyAssetTree("", resources);
++        if (!marker.createNewFile() && !marker.isFile()) {
++            throw new IllegalStateException("Could not finish installing game resources.");
++        }
++    }
++
++    private void copyAssetTree(String assetPath, File destination) throws Exception {
++        String[] children = getAssets().list(assetPath);
++        if (children != null && children.length > 0) {
++            if (!destination.isDirectory() && !destination.mkdirs()) {
++                throw new IllegalStateException("Could not create the game resources folder.");
++            }
++            for (String child : children) {
++                String childPath = assetPath.isEmpty() ? child : assetPath + "/" + child;
++                copyAssetTree(childPath, new File(destination, child));
++            }
++            return;
++        }
++
++        File parent = destination.getParentFile();
++        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
++            throw new IllegalStateException("Could not create a resources folder.");
++        }
++        try (InputStream input = getAssets().open(assetPath)) {
++            copyLimited(input, new FileOutputStream(destination));
++        }
++    }
++
++    private String displayName(Uri uri) {
++        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
++            if (cursor != null && cursor.moveToFirst()) {
++                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
++                if (index >= 0) return cursor.getString(index);
++            }
++        }
++        String path = uri.getLastPathSegment();
++        return path == null ? "quest.qst" : path;
++    }
++
++    private static String safeBaseName(String name) {
++        String base = new File(name).getName().replaceAll("[^A-Za-z0-9._ -]", "_");
++        if (!base.toLowerCase(java.util.Locale.ROOT).endsWith(".qst")) base += ".qst";
++        return base;
++    }
++
++    private static void copyLimited(InputStream input, OutputStream output) throws Exception {
++        try (OutputStream destination = output) {
++            byte[] buffer = new byte[64 * 1024];
++            long total = 0;
++            int count;
++            while ((count = input.read(buffer)) != -1) {
++                total += count;
++                if (total > MAX_QUEST_BYTES) throw new IllegalArgumentException("The quest file is too large (1 GiB limit).");
++                destination.write(buffer, 0, count);
++            }
++        }
++    }
++
++    private int dp(int value) {
++        return Math.round(value * getResources().getDisplayMetrics().density);
++    }
++
++    @Override
++    protected void onDestroy() {
++        importer.shutdownNow();
++        super.onDestroy();
++    }
++}
+diff --git 1/android/build.gradle 2/android/build.gradle
+new file mode 100644
+index 0000000..48d2fa1
+--- /dev/null
++++ 2/android/build.gradle
+@@ -0,0 +1,3 @@
++plugins {
++    id "com.android.application" version "8.7.3" apply false
++}
+diff --git 1/android/build.sh 2/android/build.sh
+new file mode 100755
+index 0000000..0cb2e8b
+--- /dev/null
++++ 2/android/build.sh
+@@ -0,0 +1,68 @@
++#!/usr/bin/env bash
++
++set -euo pipefail
++
++ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++ANDROID_DIR="$ROOT/android"
++BUILD_DIR="$ROOT/build-android"
++
++ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
++ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-}"
++if [[ -z "$ANDROID_NDK_HOME" ]]; then
++  if [[ -d "$ANDROID_HOME/ndk/26.3.11579264" ]]; then
++    ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.3.11579264"
++  else
++    for candidate in "$ANDROID_HOME"/ndk/*; do
++      [[ -d "$candidate" ]] && ANDROID_NDK_HOME="$candidate"
++    done
++  fi
++fi
++
++JDK_HOME="$(find "$HOME/.local/opt" -maxdepth 1 -type d -name 'jdk-17*' -print -quit 2>/dev/null || true)"
++GRADLE_HOME="$(find "$HOME/.local/opt" -maxdepth 1 -type d -name 'gradle-8.9' -print -quit 2>/dev/null || true)"
++if [[ -n "$JDK_HOME" ]]; then
++  export JAVA_HOME="$JDK_HOME"
++  export PATH="$JAVA_HOME/bin:$PATH"
++fi
++if [[ -n "$GRADLE_HOME" ]]; then
++  export PATH="$GRADLE_HOME/bin:$PATH"
++fi
++if [[ -x "$ANDROID_HOME/cmake/3.30.5/bin/cmake" ]]; then
++  export PATH="$ANDROID_HOME/cmake/3.30.5/bin:$PATH"
++fi
++
++if [[ ! -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" ]]; then
++  echo "Android NDK not found. Install it with Android Studio or set ANDROID_NDK_HOME." >&2
++  exit 1
++fi
++if ! command -v cmake >/dev/null || ! command -v gradle >/dev/null; then
++  echo "Install CMake 3.27+ and Gradle 8.9+ (or build from Android Studio)." >&2
++  exit 1
++fi
++
++export ANDROID_HOME ANDROID_NDK_HOME
++
++cmake -S "$ROOT" -B "$BUILD_DIR" \
++  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
++  -DANDROID_ABI=arm64-v8a \
++  -DANDROID_PLATFORM=android-23 \
++  -DCMAKE_BUILD_TYPE=Release \
++  -DWANT_NFD=OFF \
++  -DWANT_ZUPDATER=OFF \
++  -DWANT_WEBSOCKETS=OFF \
++  -DWANT_ZC_TESTS=OFF
++
++# Allegro's Android support ships its Activity and JNI helpers as an AAR.
++cmake --build "$BUILD_DIR" --target aar
++mkdir -p "$ANDROID_DIR/app/libs"
++ALLEGRO_AAR="$(find "$BUILD_DIR" -path '*/lib/allegro-release.aar' -print -quit)"
++if [[ -z "$ALLEGRO_AAR" ]]; then
++  echo "Allegro's Android AAR was not produced by the CMake build." >&2
++  exit 1
++fi
++cp "$ALLEGRO_AAR" "$ANDROID_DIR/app/libs/"
++
++cd "$ANDROID_DIR"
++gradle --no-daemon :app:assembleDebug
++
++echo "APK: $ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk"
+diff --git 1/android/gradle.properties 2/android/gradle.properties
+new file mode 100644
+index 0000000..c751e06
+--- /dev/null
++++ 2/android/gradle.properties
+@@ -0,0 +1,2 @@
++org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
++android.useAndroidX=true
+diff --git 1/android/settings.gradle 2/android/settings.gradle
+new file mode 100644
+index 0000000..b99246c
+--- /dev/null
++++ 2/android/settings.gradle
+@@ -0,0 +1,18 @@
++pluginManagement {
++    repositories {
++        google()
++        mavenCentral()
++        gradlePluginPortal()
++    }
++}
++
++dependencyResolutionManagement {
++    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
++    repositories {
++        google()
++        mavenCentral()
++    }
++}
++
++rootProject.name = "ZQuestClassicAndroid"
++include(":app")
