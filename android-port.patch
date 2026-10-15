@@ -15,7 +15,7 @@ index 9b40925..0da0c57 100644
  docs-www/source/zscript/classes
  docs-www/source/zscript/libs
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 033481b..b855851 100644
+index 033481b..3596406 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -14,10 +14,25 @@ if(NOT DEFINED CMAKE_POLICY_VERSION_MINIMUM)
@@ -74,20 +74,44 @@ index 033481b..b855851 100644
  	# Vendored SDL2, used only by allegro's SDL joystick driver (see
  	# WANT_SDL2_JOYSTICK below); only joystick-related subsystems are built.
  	# Unlike the native evdev/HID/directinput drivers, SDL keeps working when
-@@ -399,6 +416,12 @@ if(IS_BSD)
+@@ -399,12 +416,30 @@ if(IS_BSD)
  	set(WANT_ALSA OFF CACHE BOOL "" FORCE)
  endif()
  
+-FetchContent_Declare(
+-  allegro5
+-  GIT_REPOSITORY https://github.com/connorjclark/allegro5.git
+-  GIT_TAG        aae80ca3573e19702cfc2338591a575dc75eb647
+-  EXCLUDE_FROM_ALL
+-)
 +if(ANDROID)
 +	# This constructor probe cannot be run by CMake's cross-compiler checks.
 +	# Android supports global constructors, so preseed the expected result.
 +	set(ALLEGRO_LEGACY_USE_CONSTRUCTOR_EXITCODE 0 CACHE STRING "" FORCE)
 +endif()
 +
- FetchContent_Declare(
-   allegro5
-   GIT_REPOSITORY https://github.com/connorjclark/allegro5.git
-@@ -1018,12 +1041,17 @@ if(UNITY_BUILD)
++if(ANDROID)
++	# Shutting the game down destroys bitmaps after the display they belong to,
++	# which segfaults in Allegro's Android EGL teardown. See the patch.
++	FetchContent_Declare(
++		allegro5
++		GIT_REPOSITORY https://github.com/connorjclark/allegro5.git
++		GIT_TAG        aae80ca3573e19702cfc2338591a575dc75eb647
++		PATCH_COMMAND  git restore . && git apply ${CMAKE_SOURCE_DIR}/third_party/allegro5-android-teardown.patch
++		EXCLUDE_FROM_ALL
++	)
++else()
++	FetchContent_Declare(
++		allegro5
++		GIT_REPOSITORY https://github.com/connorjclark/allegro5.git
++		GIT_TAG        aae80ca3573e19702cfc2338591a575dc75eb647
++		EXCLUDE_FROM_ALL
++	)
++endif()
+ if(EMSCRIPTEN)
+ 	set(SHARED OFF CACHE BOOL "" FORCE)
+ else()
+@@ -1018,12 +1053,17 @@ if(UNITY_BUILD)
  	enable_unity_build(ZeldaSubscreen ZELDA_SUBSCREEN_SOURCES)
  endif()
  
@@ -109,10 +133,10 @@ index 033481b..b855851 100644
  endif()
 diff --git a/android/README.md b/android/README.md
 new file mode 100644
-index 0000000..122e648
+index 0000000..e06df17
 --- /dev/null
 +++ b/android/README.md
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,95 @@
 +# ZQuest Classic for Android (player)
 +
 +This is a native Android player using the project's C++ runtime and Allegro's
@@ -166,6 +190,10 @@ index 0000000..122e648
 +- **Pad** shows or hides the on-screen D-pad and buttons. The choice is
 +  remembered, and the bar stays visible either way.
 +
++Touching or clicking elsewhere in the gameplay area does not open the pause
++menu. Use **Menu** or Escape to pause; ordinary touches can interact with the
++game without interrupting it.
++
 +The on-screen controls send ordinary key events, so a hardware keyboard works
 +too. The default ZC controls are the arrow keys, `Z`/`X`, `Q`/`W`, `Enter`, and
 +`Space`.
@@ -181,7 +209,9 @@ index 0000000..122e648
 +`q569_PassageThroughTime.zip`, `q845_TheOfficial7thQuest.zip` and
 +`q853_MetdroidPlanetXX32.zip`. All six import, start, and play with no crashes;
 +the touch controls, the pause menu, the pad toggle and the Home button were all
-+exercised. This is a smoke test, not a full playthrough of any quest.
++exercised. A touch in the middle of the game was also verified not to open the
++pause menu, while the explicit Menu button still does. This is a smoke test, not
++a full playthrough of any quest.
 +
 +The APK passes Android's 16 KB page size compatibility check.
 +
@@ -194,12 +224,14 @@ index 0000000..122e648
 +- ZC draws its pause menu small in the top-left corner rather than filling the
 +  screen, and leaves part of the menu painted for a moment after it closes. It
 +  is usable with the on-screen D-pad, but it does not look right.
-+- When the game is stopped its process still ends with a SIGSEGV inside
-+  Allegro's teardown. The library is in its own process so nothing is lost and
-+  Android shows no crash dialog, but the tombstone is real.
 +- Long folder listings are read on the UI thread, and there is no way yet to
 +  delete an imported quest once it is in the library.
-\ No newline at end of file
++
++`third_party/allegro5-android-teardown.patch` is applied to Allegro on Android
++only. It guards two NULL dereferences that fire while the game shuts down,
++because Allegro runs its destructors newest first and so destroys bitmaps after
++the display they belong to. Without it, pressing Home intermittently killed the
++game process with a "ZQuest Classic keeps stopping" dialog.
 diff --git a/android/app/build.gradle b/android/app/build.gradle
 new file mode 100644
 index 0000000..b4aed23
@@ -1720,7 +1752,7 @@ index 5cba63d..fd05bd7 100644
  }
  
 diff --git a/src/zc/zc_sys.cpp b/src/zc/zc_sys.cpp
-index 46e8fbd..9337c50 100644
+index 46e8fbd..bb81c52 100644
 --- a/src/zc/zc_sys.cpp
 +++ b/src/zc/zc_sys.cpp
 @@ -113,7 +113,7 @@ extern TopMenu the_player_menu;
@@ -1744,6 +1776,21 @@ index 46e8fbd..9337c50 100644
  	zapp_exit(code);
  }
  
+@@ -3765,7 +3770,14 @@ void syskeys()
+ 	handle_close_btn_quit();
+ 	if(Quit == qEXIT) return;
+ 	
++	// Android touch can be surfaced by Allegro as a mouse click or controller
++	// menu event. Only the explicit Escape key should open the menu automatically;
++	// the on-screen Menu button sends Escape as well.
++#ifdef __ANDROID__
++	if(menu_buttons(true).first)
++#else
+ 	if(menu_pressed(true) || (gui_mouse_b() && !mouse_down && ClickToFreeze &&!disableClickToFreeze))
++#endif
+ 	{
+ 		System();
+ 	}
 diff --git a/src/zc/zc_sys.h b/src/zc/zc_sys.h
 index ed24782..f0a3834 100644
 --- a/src/zc/zc_sys.h
@@ -1859,6 +1906,60 @@ index dd3f50e..142e052 100644
  	return &get_scr_for_region_index_offset(id / MAXFFCS)->getFFC(id % MAXFFCS);
  }
 -
+diff --git a/third_party/allegro5-android-teardown.patch b/third_party/allegro5-android-teardown.patch
+new file mode 100644
+index 0000000..06f7dbe
+--- /dev/null
++++ b/third_party/allegro5-android-teardown.patch
+@@ -0,0 +1,48 @@
++diff --git i/src/android/android_display.c w/src/android/android_display.c
++index d5ccdf689..8a6d4a4cf 100644
++--- i/src/android/android_display.c
+++++ w/src/android/android_display.c
++@@ -234,11 +234,21 @@ void _al_android_destroy_surface(JNIEnv *env, jobject surface, bool post)
++ 
++ void  _al_android_make_current(JNIEnv *env, ALLEGRO_DISPLAY_ANDROID *d)
++ {
+++   /* al_uninstall_system runs registered destructors newest first, so a bitmap
+++      can be destroyed after the display it belongs to, leaving display->android
+++      or its surface NULL. Calling into the surface then dereferences NULL and
+++      kills the process during an otherwise clean shutdown. */
+++   if (d == NULL || d->surface_object == NULL)
+++      return;
+++
++    _jni_callVoidMethodV(env, d->surface_object, "egl_makeCurrent", "()V");
++ }
++ 
++ void _al_android_clear_current(JNIEnv *env, ALLEGRO_DISPLAY_ANDROID *d)
++ {
+++   if (d == NULL || d->surface_object == NULL)
+++      return;
+++
++    _jni_callVoidMethodV(env, d->surface_object, "egl_clearCurrent", "()V");
++ }
++ 
++diff --git i/src/opengl/ogl_bitmap.c w/src/opengl/ogl_bitmap.c
++index 4e01d7e73..02247c355 100644
++--- i/src/opengl/ogl_bitmap.c
+++++ w/src/opengl/ogl_bitmap.c
++@@ -592,6 +592,17 @@ static void ogl_destroy_bitmap(ALLEGRO_BITMAP *bitmap)
++    ASSERT(!al_is_sub_bitmap(bitmap));
++ 
++    bmp_disp = _al_get_bitmap_display(bitmap);
+++
+++   /* al_uninstall_system runs destructors newest first, so a bitmap can be
+++      destroyed after the display it belongs to, leaving the display and its
+++      OpenGL extras gone. Dereferencing them here kills the process during an
+++      otherwise clean shutdown. The GL context is going away regardless, so
+++      just release our own extras and stop. */
+++   if (bmp_disp == NULL || bmp_disp->ogl_extras == NULL) {
+++      al_free(ogl_bitmap);
+++      return;
+++   }
+++
++    disp = al_get_current_display();
++    if (bmp_disp->ogl_extras->is_shared == false &&
++        bmp_disp != disp) {
 diff --git a/third_party/allegro_legacy/CMakeLists.txt b/third_party/allegro_legacy/CMakeLists.txt
 index 9c453b2..410bef9 100644
 --- a/third_party/allegro_legacy/CMakeLists.txt
