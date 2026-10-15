@@ -17,16 +17,23 @@ waydroid app install ZQuestClassic-Android-Preview.apk
 ```
 
 Open the app, then choose a `.qst` file or a `.zip` containing a quest. ZIP
-imports use the first `.qst` entry. The quest is copied to app-private storage
-for offline play. On-screen controls and hardware keyboard input are enabled.
+imports select the first `.qst` and extract the archive's companion files into
+a private per-quest folder. The quest runs offline. On-screen controls and
+hardware keyboard input are enabled.
 
-This is a debug/test build. Gameplay has not yet been validated on a physical
-phone; please report crashes or compatibility issues with the device model and
-quest file/version.
+## Test status
+
+The debug APK was tested on a Pixel 10 Pro with PureZC's **The Official 7th
+Quest** ZIP (ZC 2.53.1). ZIP import, quest loading, the opening text, on-screen
+A input, and directional keyboard input were verified. This was a smoke test,
+not a full playthrough. Android showed a non-fatal 16 KB page-size compatibility
+warning for some bundled native libraries; the app still launched and played.
+
+SHA-256: `d2db37a85094f7383ff8992233e0894209868932df7bf423332bfe399f920931`
 
 ## Rebuilding from source
 
-The APK was built from the ZQuest Classic source at commit
+Built from upstream source commit
 [`3e5476411344a770489cb5aa44eb80de2eac164d`](https://github.com/ZQuestClassic/ZQuestClassic/commit/3e5476411344a770489cb5aa44eb80de2eac164d),
 with the Android changes in [`android-port.patch`](android-port.patch).
 

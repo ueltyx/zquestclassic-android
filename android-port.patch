@@ -261,10 +261,48 @@ index 215d0cf..6a59578 100644
  						d->d1 = listpos;
  						d->d2 = zc_max(zc_min(listpos - (h >> 1), max - h), 0);
 diff --git c/src/zalleg/zalleg.cpp w/src/zalleg/zalleg.cpp
-index 6182d6e..3d3a7d2 100644
+index 6182d6e..37a0c50 100644
 --- c/src/zalleg/zalleg.cpp
 +++ w/src/zalleg/zalleg.cpp
-@@ -557,6 +557,8 @@ void zalleg_bring_window_to_foreground(ALLEGRO_DISPLAY* display)
+@@ -14,8 +14,12 @@
+ #include "sfx.h"
+ #include "zsyssimple.h"
+ #include <al5_img.h>
++#ifdef __ANDROID__
++#include <allegro5/allegro.h>
++#endif
+ #include <cstdint>
+ #include <ctime>
++#include <filesystem>
+ #include <fmt/format.h>
+ #include <loadpng.h>
+ #include <mutex>
+@@ -314,6 +318,24 @@ void zalleg_setup_allegro(App id, int argc, char **argv)
+ 	{
+ 		Z_error_fatal("Failed to init allegro: %s\n", "al_init");
+ 	}
++#ifdef __ANDROID__
++	// Android stores the copied runtime resources, quest imports, and saves in
++	// the app's private files directory. The legacy datafile loaders expect the
++	// current directory to be that resource root, so set it before loading SFX
++	// and fonts below.
++	if (ALLEGRO_PATH* user_data_path = al_get_standard_path(ALLEGRO_USER_DATA_PATH))
++	{
++		std::error_code ec;
++		std::filesystem::current_path(al_path_cstr(user_data_path, '/'), ec);
++		al_destroy_path(user_data_path);
++		if (ec)
++			Z_error_fatal("Failed to set Android data directory: %s\n", ec.message().c_str());
++	}
++	else
++	{
++		Z_error_fatal("Failed to get Android data directory.\n");
++	}
++#endif
+ 	if (allegro_init() != 0)
+ 	{
+ 		Z_error_fatal("Failed to init allegro: %s\n%s\n", "allegro_init", allegro_error);
+@@ -557,6 +579,8 @@ void zalleg_bring_window_to_foreground(ALLEGRO_DISPLAY* display)
  		XFlush(x_display);
  		XCloseDisplay(x_display);
  	}
@@ -352,7 +390,7 @@ index 5cba63d..fd05bd7 100644
  }
  
 diff --git c/src/zc/zelda.cpp w/src/zc/zelda.cpp
-index dd3f50e..e76f937 100644
+index dd3f50e..4a85940 100644
 --- c/src/zc/zelda.cpp
 +++ w/src/zc/zelda.cpp
 @@ -82,6 +82,10 @@
@@ -397,7 +435,17 @@ index dd3f50e..e76f937 100644
  	allocate_crap();
  	set_should_zprint_cb([]() {
  		return get_qr(qr_SCRIPTERRLOG) || DEVLEVEL > 0;
-@@ -5148,4 +5176,3 @@ ffcdata* slopes_getFFC(int id)
+@@ -4073,7 +4101,9 @@ static void init_display()
+ 
+ 		for (int q = 0; q < NUM_ZCMOUSE; q++)
+ 			zcmouse[q] = NULL;
++	#ifndef __ANDROID__
+ 		load_mouse();
++	#endif
+ 	}
+ 
+ 	for(int32_t i=240; i<256; i++)
+@@ -5148,4 +5178,3 @@ ffcdata* slopes_getFFC(int id)
  {
  	return &get_scr_for_region_index_offset(id / MAXFFCS)->getFFC(id % MAXFFCS);
  }
@@ -441,7 +489,7 @@ index 665f96a..d248583 100644
  	  * we leave the filename alone, like bash but not tcsh; bash is better
 diff --git 1/android/README.md 2/android/README.md
 new file mode 100644
-index 0000000..a14fe84
+index 0000000..6842f3e
 --- /dev/null
 +++ 2/android/README.md
 @@ -0,0 +1,43 @@
@@ -469,8 +517,8 @@ index 0000000..a14fe84
 +## Playing a quest
 +
 +Launch the app and choose either a `.qst` file or a `.zip` containing a `.qst`
-+file. For ZIPs, the first `.qst` entry is imported; other archive contents are
-+not extracted. The quest and save files are copied into the app's private
++file. For ZIPs, the first `.qst` entry is selected and companion files are
++extracted into that quest's private folder. The quest and save files are copied into the app's private
 +storage, so the game can run offline and does not need broad storage
 +permissions.
 +
@@ -483,8 +531,8 @@ index 0000000..a14fe84
 +
 +- The APK includes `arm64-v8a` for phones and `x86_64` for Waydroid and other
 +  x86-64 Android environments.
-+- ZIP archives must contain an unencrypted `.qst` file. Only that quest is
-+  imported; custom external assets alongside it are not.
++- ZIP archives must contain an unencrypted `.qst` file. The first `.qst` is
++  selected; the archive's companion files are extracted beside it.
 +- The debug APK builds successfully, but has not yet been installed or run on
 +  an Android device. Quest compatibility and touch/keyboard behavior still
 +  need device testing.
@@ -788,10 +836,10 @@ index 0000000..778f394
 +}
 diff --git 1/android/app/src/main/java/org/zquestclassic/android/MainActivity.java 2/android/app/src/main/java/org/zquestclassic/android/MainActivity.java
 new file mode 100644
-index 0000000..e61a8d6
+index 0000000..bf52a3f
 --- /dev/null
 +++ 2/android/app/src/main/java/org/zquestclassic/android/MainActivity.java
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,294 @@
 +package org.zquestclassic.android;
 +
 +import android.app.Activity;
@@ -906,9 +954,9 @@ index 0000000..e61a8d6
 +
 +        importer.execute(() -> {
 +            try {
-+                copyResourcesIfNeeded();
 +                String name = displayName(uri);
 +                String lowerName = name.toLowerCase(java.util.Locale.ROOT);
++                copyResourcesIfNeeded();
 +                File quests = new File(getFilesDir(), "quests");
 +                if (!quests.isDirectory() && !quests.mkdirs()) {
 +                    throw new IllegalStateException("Could not create the quest folder.");
@@ -922,7 +970,7 @@ index 0000000..e61a8d6
 +                        copyLimited(input, new FileOutputStream(selectedQuest));
 +                    }
 +                } else if (lowerName.endsWith(".zip")) {
-+                    selectedQuest = importFirstQuestFromZip(uri, quests);
++                    selectedQuest = importQuestArchive(uri, quests, name);
 +                } else {
 +                    throw new IllegalArgumentException("Select a .qst file or a .zip containing a .qst file.");
 +                }
@@ -950,32 +998,49 @@ index 0000000..e61a8d6
 +        });
 +    }
 +
-+    private File importFirstQuestFromZip(Uri uri, File destination) throws Exception {
++    private File importQuestArchive(Uri uri, File destination, String archiveName) throws Exception {
++        String folderName = safeFileComponent(archiveName.replaceFirst("(?i)\\.zip$", ""));
++        File questFolder = new File(destination, folderName);
++        for (int suffix = 2; questFolder.exists(); suffix++) {
++            questFolder = new File(destination, folderName + " (" + suffix + ")");
++        }
++        if (!questFolder.mkdirs()) throw new IllegalStateException("Could not create the quest folder.");
++
 +        try (InputStream source = getContentResolver().openInputStream(uri)) {
 +            if (source == null) throw new IllegalStateException("Could not open the selected ZIP file.");
 +            try (ZipInputStream zip = new ZipInputStream(source)) {
++                File selectedQuest = null;
++                long totalBytes = 0;
 +                ZipEntry entry;
 +                while ((entry = zip.getNextEntry()) != null) {
-+                    if (!entry.isDirectory() && entry.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".qst")) {
-+                        String name = entry.getName().replace('\\', '/');
-+                        name = name.substring(name.lastIndexOf('/') + 1);
-+                        File quest = new File(destination, safeBaseName(name));
-+                        copyLimited(zip, new FileOutputStream(quest));
-+                        return quest;
++                    File output = resolveArchiveEntry(questFolder, entry.getName());
++                    if (entry.isDirectory()) {
++                        if (!output.isDirectory() && !output.mkdirs()) {
++                            throw new IllegalStateException("Could not create a folder from the quest archive.");
++                        }
++                    } else {
++                        File parent = output.getParentFile();
++                        if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
++                            throw new IllegalStateException("Could not create a folder from the quest archive.");
++                        }
++                        totalBytes += copyLimited(zip, new FileOutputStream(output), MAX_QUEST_BYTES - totalBytes);
++                        if (selectedQuest == null && output.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".qst")) {
++                            selectedQuest = output;
++                        }
 +                    }
 +                    zip.closeEntry();
 +                }
++                if (selectedQuest != null) return selectedQuest;
 +            }
 +        }
 +        throw new IllegalArgumentException("The ZIP archive does not contain a .qst quest file.");
 +    }
 +
 +    private void copyResourcesIfNeeded() throws Exception {
-+        File marker = new File(getFilesDir(), ".resources-installed");
++        File marker = new File(getFilesDir(), ".resources-installed-v2");
 +        if (marker.isFile()) return;
 +
-+        File resources = new File(getFilesDir(), "resources");
-+        copyAssetTree("", resources);
++        copyAssetTree("", getFilesDir());
 +        if (!marker.createNewFile() && !marker.isFile()) {
 +            throw new IllegalStateException("Could not finish installing game resources.");
 +        }
@@ -1015,21 +1080,47 @@ index 0000000..e61a8d6
 +    }
 +
 +    private static String safeBaseName(String name) {
-+        String base = new File(name).getName().replaceAll("[^A-Za-z0-9._ -]", "_");
++        String base = safeFileComponent(name);
 +        if (!base.toLowerCase(java.util.Locale.ROOT).endsWith(".qst")) base += ".qst";
 +        return base;
 +    }
 +
++    private static String safeFileComponent(String name) {
++        String base = new File(name).getName().replaceAll("[^A-Za-z0-9._ -]", "_").trim();
++        if (base.isEmpty() || base.equals(".") || base.equals("..")) return "quest";
++        return base;
++    }
++
 +    private static void copyLimited(InputStream input, OutputStream output) throws Exception {
++        copyLimited(input, output, MAX_QUEST_BYTES);
++    }
++
++    private static File resolveArchiveEntry(File root, String entryName) throws Exception {
++        String normalizedName = entryName.replace('\\', '/');
++        if (normalizedName.startsWith("/") || normalizedName.matches("^[A-Za-z]:.*")) {
++            throw new IllegalArgumentException("The ZIP archive contains an unsafe path.");
++        }
++        if (normalizedName.isEmpty() || normalizedName.equals(".") || normalizedName.equals("./")) return root;
++        File output = new File(root, normalizedName);
++        String rootPath = root.getCanonicalPath() + File.separator;
++        String outputPath = output.getCanonicalPath();
++        if (!outputPath.startsWith(rootPath)) {
++            throw new IllegalArgumentException("The ZIP archive contains an unsafe path.");
++        }
++        return output;
++    }
++
++    private static long copyLimited(InputStream input, OutputStream output, long maxBytes) throws Exception {
 +        try (OutputStream destination = output) {
 +            byte[] buffer = new byte[64 * 1024];
 +            long total = 0;
 +            int count;
 +            while ((count = input.read(buffer)) != -1) {
 +                total += count;
-+                if (total > MAX_QUEST_BYTES) throw new IllegalArgumentException("The quest file is too large (1 GiB limit).");
++                if (total > maxBytes) throw new IllegalArgumentException("The quest archive is too large (1 GiB limit).");
 +                destination.write(buffer, 0, count);
 +            }
++            return total;
 +        }
 +    }
 +
